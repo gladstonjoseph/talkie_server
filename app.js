@@ -203,6 +203,25 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("search_users", async (query) => {
+    try {
+      if (!query) {
+        socket.emit("search_users_result", []);
+        return;
+      }
+
+      const result = await pool.query(
+        'SELECT id, name, email FROM users WHERE LOWER(name) LIKE LOWER($1) OR LOWER(email) LIKE LOWER($1)',
+        [`%${query}%`]
+      );
+
+      socket.emit("search_users_result", result.rows);
+    } catch (err) {
+      console.error('Error searching users via WebSocket:', err);
+      socket.emit("search_users_error", { error: 'Error searching users' });
+    }
+  });
+
   socket.on("disconnect", () => {
     if (socket.userId) {
       activeUsers.delete(socket.userId);
