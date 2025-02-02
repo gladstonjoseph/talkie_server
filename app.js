@@ -195,8 +195,9 @@ io.on("connection", (socket) => {
 
   socket.on("send_message", ({ to, from, message }) => {
     const recipientSocketId = activeUsers.get(to);
+    const timestamp = new Date().toISOString();
     if (recipientSocketId) {
-      io.to(recipientSocketId).emit("receive_message", { from, message });
+      io.to(recipientSocketId).emit("receive_message", { from, message, timestamp });
     } else {
       socket.emit("message_not_delivered", { to, message });
     }
