@@ -124,26 +124,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// User Search
-app.get('/api/users', async (req, res) => {
-  try {
-    const { query } = req.query;
-    if (!query) {
-      return res.json([]);
-    }
-
-    const result = await pool.query(
-      'SELECT id, name, email FROM users WHERE LOWER(name) LIKE LOWER($1) OR LOWER(email) LIKE LOWER($1)',
-      [`%${query}%`]
-    );
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
 // Get User by ID
 app.get('/api/users/:userId', async (req, res) => {
   try {
