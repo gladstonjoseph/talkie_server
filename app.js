@@ -47,22 +47,69 @@ const createUsersTable = async () => {
 // Create messages table if it doesn't exist
 const createMessagesTable = async () => {
   try {
+    // First create the new table structure
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS messages (
+      CREATE TABLE IF NOT EXISTS messages_new (
         id SERIAL PRIMARY KEY,
-        userId_from INTEGER REFERENCES users(id),
-        userId_to INTEGER REFERENCES users(id),
+        type TEXT,
+        sender_id INTEGER REFERENCES users(id),
+        sender_local_message_id TEXT,
+        recipient_id INTEGER REFERENCES users(id),
         message TEXT NOT NULL,
-        timestamp TIMESTAMP NOT NULL,
-        isDelivered BOOLEAN,
+        sender_timestamp TIMESTAMP NOT NULL,
+        primary_sender_id INTEGER REFERENCES users(id),
+        primary_sender_local_message_id TEXT,
+        primary_recipient_id INTEGER REFERENCES users(id),
+        is_delivered BOOLEAN,
         delivery_timestamp TIMESTAMP,
-        isRead BOOLEAN,
+        is_read BOOLEAN,
         read_timestamp TIMESTAMP
       );
     `);
-    console.log('Messages table created successfully');
+
+    // Check if old messages table exists
+    const tableExists = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'messages'
+      );
+    `);
+
+    if (tableExists.rows[0].exists) {
+      // Copy data from old table to new table
+      await pool.query(`
+        INSERT INTO messages_new (
+          sender_id,
+          recipient_id,
+          message,
+          sender_timestamp,
+          is_delivered,
+          delivery_timestamp,
+          is_read,
+          read_timestamp
+        )
+        SELECT 
+          userId_from,
+          userId_to,
+          message,
+          timestamp,
+          isDelivered,
+          delivery_timestamp,
+          isRead,
+          read_timestamp
+        FROM messages;
+      `);
+
+      // Drop the old table
+      await pool.query('DROP TABLE messages;');
+    }
+
+    // Rename the new table to messages
+    await pool.query('ALTER TABLE messages_new RENAME TO messages;');
+
+    console.log('Messages table created/updated successfully');
   } catch (err) {
-    console.error('Error creating messages table:', err);
+    console.error('Error creating/updating messages table:', err);
   }
 };
 
@@ -196,15 +243,43 @@ io.on("connection", (socket) => {
     activeUsers.set(userId, socket.id);
   });
 
-  socket.on("send_message", async ({ to, from, message }) => {
-    const recipientSocketId = activeUsers.get(to);
-    const timestamp = new Date().toISOString();
+  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null }) => {
+    const recipientSocketId = activeUsers.get(recipient_id);
+    const sender_timestamp = new Date().toISOString();
     
     try {
       // Save message to database and get the ID
       const result = await pool.query(
-        'INSERT INTO messages (userId_from, userId_to, message, timestamp, isDelivered, delivery_timestamp, isRead, read_timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-        [from, to, message, timestamp, null, null, null, null]
+        `INSERT INTO messages (
+          sender_id,
+          recipient_id,
+          message,
+          sender_timestamp,
+          type,
+          sender_local_message_id,
+          primary_sender_id,
+          primary_sender_local_message_id,
+          primary_recipient_id,
+          is_delivered,
+          delivery_timestamp,
+          is_read,
+          read_timestamp
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+        [
+          sender_id,
+          recipient_id,
+          message,
+          sender_timestamp,
+          type,
+          sender_local_message_id,
+          primary_sender_id,
+          primary_sender_local_message_id,
+          primary_recipient_id,
+          null,
+          null,
+          null,
+          null
+        ]
       );
       
       const messageId = result.rows[0].id;
@@ -213,14 +288,20 @@ io.on("connection", (socket) => {
       if (recipientSocketId) {
         io.to(recipientSocketId).emit("receive_message", { 
           id: messageId,
-          from, 
-          message, 
-          timestamp 
+          sender_id,
+          recipient_id,
+          message,
+          sender_timestamp,
+          type,
+          sender_local_message_id,
+          primary_sender_id,
+          primary_sender_local_message_id,
+          primary_recipient_id
         });
       } else {
         socket.emit("message_not_delivered", { 
           id: messageId,
-          to, 
+          recipient_id, 
           message 
         });
       }
