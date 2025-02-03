@@ -196,9 +196,9 @@ io.on("connection", (socket) => {
     activeUsers.set(userId, socket.id);
   });
 
-  socket.on("send_message", async ({ to, from, message }, ack) => {
-    const timestamp = new Date().toISOString();
+  socket.on("send_message", async ({ to, from, message }) => {
     const recipientSocketId = activeUsers.get(to);
+    const timestamp = new Date().toISOString();
     
     try {
       // Save message to database and get the ID
@@ -209,11 +209,6 @@ io.on("connection", (socket) => {
       
       const messageId = result.rows[0].id;
 
-      // Send acknowledgement back with just the global_id
-      if (ack) {
-        ack({ global_id: messageId });
-      }
-
       // Send message through WebSocket if recipient is online
       if (recipientSocketId) {
         io.to(recipientSocketId).emit("receive_message", { 
@@ -222,12 +217,16 @@ io.on("connection", (socket) => {
           message, 
           timestamp 
         });
-      } 
+      } else {
+        socket.emit("message_not_delivered", { 
+          id: messageId,
+          to, 
+          message 
+        });
+      }
     } catch (err) {
       console.error('Error saving message to database:', err);
-      if (ack) {
-        ack({ error: 'Error saving message' });
-      }
+      socket.emit("message_error", { error: 'Error saving message' });
     }
   });
 
