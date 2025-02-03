@@ -44,7 +44,30 @@ const createUsersTable = async () => {
   }
 };
 
+// Create messages table if it doesn't exist
+const createMessagesTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        userId_from INTEGER REFERENCES users(id),
+        userId_to INTEGER REFERENCES users(id),
+        message TEXT NOT NULL,
+        timestamp TIMESTAMP NOT NULL,
+        isDelivered BOOLEAN,
+        delivery_timestamp TIMESTAMP,
+        isRead BOOLEAN,
+        read_timestamp TIMESTAMP
+      );
+    `);
+    console.log('Messages table created successfully');
+  } catch (err) {
+    console.error('Error creating messages table:', err);
+  }
+};
+
 createUsersTable();
+createMessagesTable();
 
 // User Registration
 app.post('/api/register', async (req, res) => {
@@ -173,13 +196,26 @@ io.on("connection", (socket) => {
     activeUsers.set(userId, socket.id);
   });
 
-  socket.on("send_message", ({ to, from, message }) => {
+  socket.on("send_message", async ({ to, from, message }) => {
     const recipientSocketId = activeUsers.get(to);
     const timestamp = new Date().toISOString();
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit("receive_message", { from, message, timestamp });
-    } else {
-      socket.emit("message_not_delivered", { to, message });
+    
+    try {
+      // Save message to database
+      await pool.query(
+        'INSERT INTO messages (userId_from, userId_to, message, timestamp, isDelivered, delivery_timestamp, isRead, read_timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [from, to, message, timestamp, null, null, null, null]
+      );
+
+      // Send message through WebSocket if recipient is online
+      if (recipientSocketId) {
+        io.to(recipientSocketId).emit("receive_message", { from, message, timestamp });
+      } else {
+        socket.emit("message_not_delivered", { to, message });
+      }
+    } catch (err) {
+      console.error('Error saving message to database:', err);
+      socket.emit("message_error", { error: 'Error saving message' });
     }
   });
 
