@@ -201,17 +201,28 @@ io.on("connection", (socket) => {
     const timestamp = new Date().toISOString();
     
     try {
-      // Save message to database
-      await pool.query(
-        'INSERT INTO messages (userId_from, userId_to, message, timestamp, isDelivered, delivery_timestamp, isRead, read_timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      // Save message to database and get the ID
+      const result = await pool.query(
+        'INSERT INTO messages (userId_from, userId_to, message, timestamp, isDelivered, delivery_timestamp, isRead, read_timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
         [from, to, message, timestamp, null, null, null, null]
       );
+      
+      const messageId = result.rows[0].id;
 
       // Send message through WebSocket if recipient is online
       if (recipientSocketId) {
-        io.to(recipientSocketId).emit("receive_message", { from, message, timestamp });
+        io.to(recipientSocketId).emit("receive_message", { 
+          id: messageId,
+          from, 
+          message, 
+          timestamp 
+        });
       } else {
-        socket.emit("message_not_delivered", { to, message });
+        socket.emit("message_not_delivered", { 
+          id: messageId,
+          to, 
+          message 
+        });
       }
     } catch (err) {
       console.error('Error saving message to database:', err);
