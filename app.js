@@ -345,6 +345,46 @@ io.on("connection", (socket) => {
     }
     console.log('Client disconnected');
   });
+
+  socket.on("set_delivery_status", async ({ message_global_id, is_delivered, delivery_timestamp }) => {
+    try {
+      const result = await pool.query(
+        `UPDATE messages 
+         SET is_delivered = $1, delivery_timestamp = $2
+         WHERE id = $3
+         RETURNING id, is_delivered, delivery_timestamp`,
+        [is_delivered, delivery_timestamp, message_global_id]
+      );
+
+      if (result.rows.length > 0) {
+        console.log(`Message ${message_global_id} delivery status updated: ${is_delivered}, timestamp: ${delivery_timestamp}`);
+      } else {
+        console.error(`Message ${message_global_id} not found for delivery update`);
+      }
+    } catch (err) {
+      console.error('Error updating message delivery status:', err);
+    }
+  });
+
+  socket.on("set_read_status", async ({ message_global_id, is_read, read_timestamp }) => {
+    try {
+      const result = await pool.query(
+        `UPDATE messages 
+         SET is_read = $1, read_timestamp = $2
+         WHERE id = $3
+         RETURNING id, is_read, read_timestamp`,
+        [is_read, read_timestamp, message_global_id]
+      );
+
+      if (result.rows.length > 0) {
+        console.log(`Message ${message_global_id} read status updated: ${is_read}, timestamp: ${read_timestamp}`);
+      } else {
+        console.error(`Message ${message_global_id} not found for read update`);
+      }
+    } catch (err) {
+      console.error('Error updating message read status:', err);
+    }
+  });
 });
 
 server.keepAliveTimeout = 120 * 1000;
