@@ -243,9 +243,10 @@ io.on("connection", (socket) => {
     activeUsers.set(userId, socket.id);
   });
 
-  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null }) => {
+  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null }, callback) => {
     const recipientSocketId = activeUsers.get(recipient_id);
     const sender_timestamp = new Date().toISOString();
+    const senderSocketId = activeUsers.get(sender_id);
     
     try {
       // Save message to database and get the ID
@@ -281,8 +282,13 @@ io.on("connection", (socket) => {
           null
         ]
       );
-      
+
       const messageId = result.rows[0].id;
+
+      // Send acknowledgment back to sender with the message ID
+      if (callback) {
+        callback({ messageId });
+      }
 
       // Send message through WebSocket if recipient is online
       if (recipientSocketId) {
