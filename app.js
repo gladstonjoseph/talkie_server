@@ -287,7 +287,10 @@ io.on("connection", (socket) => {
 
       // Send acknowledgment back to sender with the message ID
       if (callback) {
-        callback({ messageId });
+        callback({ 
+          messageId,
+          sender_local_message_id: sender_local_message_id 
+        });
       }
 
       // Send message through WebSocket if recipient is online
