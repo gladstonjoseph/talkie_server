@@ -346,43 +346,57 @@ io.on("connection", (socket) => {
     console.log('Client disconnected');
   });
 
-  socket.on("set_delivery_status", async ({ message_global_id, is_delivered, delivery_timestamp }) => {
+  socket.on("set_delivery_status", async (data) => {
     try {
+      const { message_global_id, is_delivered, delivery_timestamp } = data;
+
+      // Update the message in the database
       const result = await pool.query(
-        `UPDATE messages 
-         SET is_delivered = $1, delivery_timestamp = $2
-         WHERE id = $3
-         RETURNING id, is_delivered, delivery_timestamp`,
+        'UPDATE messages SET is_delivered = $1, delivery_timestamp = $2 WHERE id = $3 RETURNING sender_id',
         [is_delivered, delivery_timestamp, message_global_id]
       );
 
       if (result.rows.length > 0) {
-        console.log(`Message ${message_global_id} delivery status updated: ${is_delivered}, timestamp: ${delivery_timestamp}`);
-      } else {
-        console.error(`Message ${message_global_id} not found for delivery update`);
+        const senderId = result.rows[0].sender_id;
+        // If the sender is online, send them the delivery status update
+        const senderSocketId = activeUsers.get(senderId);
+        if (senderSocketId) {
+          io.to(senderSocketId).emit('delivery_status_update', {
+            global_id: message_global_id,
+            is_delivered,
+            delivery_timestamp
+          });
+        }
       }
     } catch (err) {
-      console.error('Error updating message delivery status:', err);
+      console.error('Error updating delivery status:', err);
     }
   });
 
-  socket.on("set_read_status", async ({ message_global_id, is_read, read_timestamp }) => {
+  socket.on("set_read_status", async (data) => {
     try {
+      const { message_global_id, is_read, read_timestamp } = data;
+
+      // Update the message in the database
       const result = await pool.query(
-        `UPDATE messages 
-         SET is_read = $1, read_timestamp = $2
-         WHERE id = $3
-         RETURNING id, is_read, read_timestamp`,
+        'UPDATE messages SET is_read = $1, read_timestamp = $2 WHERE id = $3 RETURNING sender_id',
         [is_read, read_timestamp, message_global_id]
       );
 
       if (result.rows.length > 0) {
-        console.log(`Message ${message_global_id} read status updated: ${is_read}, timestamp: ${read_timestamp}`);
-      } else {
-        console.error(`Message ${message_global_id} not found for read update`);
+        const senderId = result.rows[0].sender_id;
+        // If the sender is online, send them the read status update
+        const senderSocketId = activeUsers.get(senderId);
+        if (senderSocketId) {
+          io.to(senderSocketId).emit('read_status_update', {
+            global_id: message_global_id,
+            is_read,
+            read_timestamp
+          });
+        }
       }
     } catch (err) {
-      console.error('Error updating message read status:', err);
+      console.error('Error updating read status:', err);
     }
   });
 });
