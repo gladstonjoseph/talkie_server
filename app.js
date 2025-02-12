@@ -113,8 +113,106 @@ const createMessagesTable = async () => {
   }
 };
 
+// Create group conversations table if it doesn't exist
+const createGroupConversationsTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_conversations (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Group conversations table created successfully');
+  } catch (err) {
+    console.error('Error creating group conversations table:', err);
+  }
+};
+
+// Create group members table if it doesn't exist
+const createGroupMembersTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id INTEGER REFERENCES group_conversations(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (group_id, user_id)
+      );
+    `);
+    console.log('Group members table created successfully');
+  } catch (err) {
+    console.error('Error creating group members table:', err);
+  }
+};
+
+// Create group messages table if it doesn't exist
+const createGroupMessagesTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id SERIAL PRIMARY KEY,
+        global_id SERIAL UNIQUE,
+        type TEXT,
+        sender_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        sender_local_message_id TEXT,
+        group_id INTEGER REFERENCES group_conversations(id) ON DELETE CASCADE,
+        message TEXT NOT NULL,
+        sender_timestamp TIMESTAMP NOT NULL,
+        primary_message_id INTEGER REFERENCES group_messages(id),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Group messages table created successfully');
+  } catch (err) {
+    console.error('Error creating group messages table:', err);
+  }
+};
+
+// Create group message delivery status table if it doesn't exist
+const createGroupMessageDeliveryStatusTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_message_delivery_status (
+        message_id INTEGER REFERENCES group_messages(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        is_delivered BOOLEAN DEFAULT FALSE,
+        delivery_timestamp TIMESTAMP,
+        PRIMARY KEY (message_id, user_id)
+      );
+    `);
+    console.log('Group message delivery status table created successfully');
+  } catch (err) {
+    console.error('Error creating group message delivery status table:', err);
+  }
+};
+
+// Create group message read status table if it doesn't exist
+const createGroupMessageReadStatusTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_message_read_status (
+        message_id INTEGER REFERENCES group_messages(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        is_read BOOLEAN DEFAULT FALSE,
+        read_timestamp TIMESTAMP,
+        PRIMARY KEY (message_id, user_id)
+      );
+    `);
+    console.log('Group message read status table created successfully');
+  } catch (err) {
+    console.error('Error creating group message read status table:', err);
+  }
+};
+
 createUsersTable();
 createMessagesTable();
+createGroupConversationsTable();
+createGroupMembersTable();
+createGroupMessagesTable();
+createGroupMessageDeliveryStatusTable();
+createGroupMessageReadStatusTable();
 
 // User Registration
 app.post('/api/register', async (req, res) => {
@@ -240,7 +338,7 @@ io.on("connection", (socket) => {
   socket.on("register", (userId) => {
     console.log('User registered:', userId);
     socket.userId = userId;
-    activeUsers.set(userId, socket.id);
+    socket.join(`user:${userId}`);
   });
 
   socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null }, callback) => {
@@ -397,6 +495,294 @@ io.on("connection", (socket) => {
       }
     } catch (err) {
       console.error('Error updating read status:', err);
+    }
+  });
+
+  // Group chat events
+  socket.on("create_group", async (data, callback) => {
+    try {
+      const { name, userIds } = data;
+
+      // Validate input
+      if (!userIds || !Array.isArray(userIds) || userIds.length < 2) {
+        callback({ error: 'At least two users are required for a group' });
+        return;
+      }
+
+      // Start a transaction
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Create group conversation
+        const groupResult = await client.query(
+          'INSERT INTO group_conversations (name) VALUES ($1) RETURNING *',
+          [name]
+        );
+        const group = groupResult.rows[0];
+
+        // Add members to the group
+        const memberPromises = userIds.map(userId =>
+          client.query(
+            'INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) RETURNING user_id',
+            [group.id, userId]
+          )
+        );
+        await Promise.all(memberPromises);
+
+        // Get group members with their details
+        const membersResult = await client.query(`
+          SELECT u.id, u.name, u.email
+          FROM users u
+          JOIN group_members gm ON u.id = gm.user_id
+          WHERE gm.group_id = $1
+        `, [group.id]);
+
+        await client.query('COMMIT');
+
+        const groupData = {
+          ...group,
+          members: membersResult.rows
+        };
+
+        // Notify all group members
+        userIds.forEach(userId => {
+          io.to(`user:${userId}`).emit("group_created", groupData);
+        });
+
+        callback({ success: true, group: groupData });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error creating group:', err);
+      callback({ error: 'Server error' });
+    }
+  });
+
+  socket.on("get_user_groups", async (userId, callback) => {
+    try {
+      const result = await pool.query(`
+        SELECT 
+          gc.id,
+          gc.name,
+          gc.created_at,
+          gc.updated_at,
+          json_agg(json_build_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+          )) as members,
+          (
+            SELECT json_build_object(
+              'message', gm.message,
+              'sender_id', gm.sender_id,
+              'sender_timestamp', gm.sender_timestamp
+            )
+            FROM group_messages gm
+            WHERE gm.group_id = gc.id
+            ORDER BY gm.sender_timestamp DESC
+            LIMIT 1
+          ) as last_message
+        FROM group_conversations gc
+        JOIN group_members gm ON gc.id = gm.group_id
+        JOIN users u ON gm.user_id = u.id
+        WHERE gc.id IN (
+          SELECT group_id 
+          FROM group_members 
+          WHERE user_id = $1
+        )
+        GROUP BY gc.id
+        ORDER BY gc.updated_at DESC
+      `, [userId]);
+
+      callback({ success: true, groups: result.rows });
+    } catch (err) {
+      console.error('Error fetching user groups:', err);
+      callback({ error: 'Server error' });
+    }
+  });
+
+  socket.on("get_group_messages", async (data, callback) => {
+    try {
+      const { groupId, limit = 50, offset = 0 } = data;
+      const result = await pool.query(`
+        SELECT 
+          gm.*,
+          json_build_object(
+            'id', u.id,
+            'name', u.name,
+            'email', u.email
+          ) as sender,
+          (
+            SELECT json_agg(json_build_object(
+              'user_id', gmds.user_id,
+              'is_delivered', gmds.is_delivered,
+              'delivery_timestamp', gmds.delivery_timestamp
+            ))
+            FROM group_message_delivery_status gmds
+            WHERE gmds.message_id = gm.id
+          ) as delivery_status,
+          (
+            SELECT json_agg(json_build_object(
+              'user_id', gmrs.user_id,
+              'is_read', gmrs.is_read,
+              'read_timestamp', gmrs.read_timestamp
+            ))
+            FROM group_message_read_status gmrs
+            WHERE gmrs.message_id = gm.id
+          ) as read_status
+        FROM group_messages gm
+        JOIN users u ON gm.sender_id = u.id
+        WHERE gm.group_id = $1
+        ORDER BY gm.sender_timestamp DESC
+        LIMIT $2 OFFSET $3
+      `, [groupId, limit, offset]);
+
+      callback({ success: true, messages: result.rows.reverse() });
+    } catch (err) {
+      console.error('Error fetching group messages:', err);
+      callback({ error: 'Server error' });
+    }
+  });
+
+  socket.on("join_group", (groupId) => {
+    socket.join(`group:${groupId}`);
+  });
+
+  socket.on("leave_group", (groupId) => {
+    socket.leave(`group:${groupId}`);
+  });
+
+  socket.on("group_message", async (data, callback) => {
+    try {
+      const { 
+        type,
+        sender_id,
+        sender_local_message_id,
+        group_id,
+        message,
+        sender_timestamp,
+        primary_message_id
+      } = data;
+
+      // Start a transaction
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Insert the message
+        const messageResult = await client.query(`
+          INSERT INTO group_messages (
+            type, sender_id, sender_local_message_id, group_id, 
+            message, sender_timestamp, primary_message_id
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING *
+        `, [
+          type, sender_id, sender_local_message_id, group_id,
+          message, sender_timestamp, primary_message_id
+        ]);
+        
+        const newMessage = messageResult.rows[0];
+
+        // Get group members
+        const membersResult = await client.query(
+          'SELECT user_id FROM group_members WHERE group_id = $1',
+          [group_id]
+        );
+
+        // Initialize delivery and read status for all members except sender
+        for (const member of membersResult.rows) {
+          if (member.user_id !== sender_id) {
+            await client.query(`
+              INSERT INTO group_message_delivery_status (message_id, user_id)
+              VALUES ($1, $2)
+            `, [newMessage.id, member.user_id]);
+
+            await client.query(`
+              INSERT INTO group_message_read_status (message_id, user_id)
+              VALUES ($1, $2)
+            `, [newMessage.id, member.user_id]);
+          }
+        }
+
+        // Update group's updated_at timestamp
+        await client.query(
+          'UPDATE group_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+          [group_id]
+        );
+
+        await client.query('COMMIT');
+
+        // Get the complete message data with sender info
+        const completeMessage = await pool.query(`
+          SELECT 
+            gm.*,
+            json_build_object(
+              'id', u.id,
+              'name', u.name,
+              'email', u.email
+            ) as sender
+          FROM group_messages gm
+          JOIN users u ON gm.sender_id = u.id
+          WHERE gm.id = $1
+        `, [newMessage.id]);
+
+        // Emit the message to all members in the group
+        io.to(`group:${group_id}`).emit("group_message", completeMessage.rows[0]);
+
+        callback({ success: true, message: completeMessage.rows[0] });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.error('Error handling group message:', err);
+      callback({ error: 'Server error' });
+    }
+  });
+
+  socket.on("group_message_delivered", async (data, callback) => {
+    try {
+      const { message_id, user_id, group_id } = data;
+      
+      await pool.query(`
+        UPDATE group_message_delivery_status 
+        SET is_delivered = true, delivery_timestamp = CURRENT_TIMESTAMP
+        WHERE message_id = $1 AND user_id = $2
+        RETURNING *
+      `, [message_id, user_id]);
+
+      io.to(`group:${group_id}`).emit("group_message_delivered", data);
+      callback({ success: true });
+    } catch (err) {
+      console.error('Error handling group message delivery:', err);
+      callback({ error: 'Server error' });
+    }
+  });
+
+  socket.on("group_message_read", async (data, callback) => {
+    try {
+      const { message_id, user_id, group_id } = data;
+      
+      await pool.query(`
+        UPDATE group_message_read_status 
+        SET is_read = true, read_timestamp = CURRENT_TIMESTAMP
+        WHERE message_id = $1 AND user_id = $2
+        RETURNING *
+      `, [message_id, user_id]);
+
+      io.to(`group:${group_id}`).emit("group_message_read", data);
+      callback({ success: true });
+    } catch (err) {
+      console.error('Error handling group message read status:', err);
+      callback({ error: 'Server error' });
     }
   });
 });
