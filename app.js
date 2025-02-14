@@ -275,9 +275,8 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null }, callback) => {
+  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp }, callback) => {
     const recipientSocketId = activeUsers.get(recipient_id);
-    const sender_timestamp = new Date().toISOString();
     const senderSocketId = activeUsers.get(sender_id);
     
     try {
