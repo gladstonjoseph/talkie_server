@@ -388,6 +388,70 @@ io.on("connection", (socket) => {
       console.error('Error updating read status:', err);
     }
   });
+
+  socket.on("get_delivery_status", async (message_ids, callback) => {
+    try {
+      console.log('Fetching delivery status for messages:', message_ids);
+      
+      const result = await pool.query(`
+        SELECT 
+          id as message_global_id,
+          is_delivered,
+          delivery_timestamp
+        FROM messages 
+        WHERE id = ANY($1)
+      `, [message_ids]);
+
+      if (callback) {
+        callback({
+          status: 'success',
+          statuses: result.rows
+        });
+      }
+
+      console.log(`Found delivery status for ${result.rows.length} messages`);
+    } catch (error) {
+      console.error('Error fetching delivery status:', error);
+      if (callback) {
+        callback({
+          status: 'error',
+          message: 'Failed to fetch delivery status'
+        });
+      }
+    }
+  });
+
+  socket.on("get_read_status", async (message_ids, callback) => {
+    try {
+      console.log('Fetching read status for messages:', message_ids);
+      
+      const result = await pool.query(`
+        SELECT 
+          id as message_global_id,
+          is_read,
+          read_timestamp
+        FROM messages 
+        WHERE id = ANY($1)
+      `, [message_ids]);
+
+      if (callback) {
+        callback({
+          status: 'success',
+          statuses: result.rows
+        });
+      }
+
+      console.log(`Found read status for ${result.rows.length} messages`);
+    } catch (error) {
+      console.error('Error fetching read status:', error);
+      if (callback) {
+        callback({
+          status: 'error',
+          message: 'Failed to fetch read status'
+        });
+      }
+    }
+  });
 });
 
 server.keepAliveTimeout = 120 * 1000;
