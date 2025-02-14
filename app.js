@@ -47,9 +47,8 @@ const createUsersTable = async () => {
 // Create messages table if it doesn't exist
 const createMessagesTable = async () => {
   try {
-    // First create the new table structure
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS messages_new (
+      CREATE TABLE IF NOT EXISTS messages (
         id SERIAL PRIMARY KEY,
         type TEXT,
         sender_id INTEGER REFERENCES users(id),
@@ -66,50 +65,9 @@ const createMessagesTable = async () => {
         read_timestamp TIMESTAMP
       );
     `);
-
-    // Check if old messages table exists
-    const tableExists = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'messages'
-      );
-    `);
-
-    if (tableExists.rows[0].exists) {
-      // Copy data from old table to new table
-      await pool.query(`
-        INSERT INTO messages_new (
-          sender_id,
-          recipient_id,
-          message,
-          sender_timestamp,
-          is_delivered,
-          delivery_timestamp,
-          is_read,
-          read_timestamp
-        )
-        SELECT 
-          userId_from,
-          userId_to,
-          message,
-          timestamp,
-          isDelivered,
-          delivery_timestamp,
-          isRead,
-          read_timestamp
-        FROM messages;
-      `);
-
-      // Drop the old table
-      await pool.query('DROP TABLE messages;');
-    }
-
-    // Rename the new table to messages
-    await pool.query('ALTER TABLE messages_new RENAME TO messages;');
-
-    console.log('Messages table created/updated successfully');
+    console.log('Messages table created successfully');
   } catch (err) {
-    console.error('Error creating/updating messages table:', err);
+    console.error('Error creating messages table:', err);
   }
 };
 
