@@ -203,6 +203,34 @@ io.on("connection", (socket) => {
     activeUsers.set(userId, socket.id);
   });
 
+    socket.on("get_messages", async (userId, ack) => {
+        try {
+            console.log('Fetching undelivered messages for user:', userId);
+            
+            // Query to get all undelivered messages for the user
+            const result = await pool.query(`
+                SELECT * FROM messages 
+                WHERE recipient_id = $1 
+                AND (is_delivered = false OR is_delivered IS NULL)
+                ORDER BY sender_timestamp ASC
+            `, [userId]);
+
+            console.log(`Found ${result.rows.length} undelivered messages for user ${userId}`);
+            
+            // Always call the acknowledgment callback
+            ack({
+                status: 'success',
+                messages: result.rows
+            });
+        } catch (error) {
+            console.error('Error fetching messages:', error);
+            ack({
+                status: 'error',
+                message: 'Failed to fetch messages'
+            });
+        }
+    });
+
   socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null }, callback) => {
     const recipientSocketId = activeUsers.get(recipient_id);
     const senderSocketId = activeUsers.get(sender_id);
