@@ -213,19 +213,11 @@ io.on("connection", (socket) => {
         ORDER BY sender_timestamp ASC
       `, [userId]);
 
-      // Format timestamps to ISO8601 before sending
-      const formattedMessages = result.rows.map(message => ({
-        ...message,
-        sender_timestamp: message.sender_timestamp.toISOString(),
-        delivery_timestamp: message.delivery_timestamp ? message.delivery_timestamp.toISOString() : null,
-        read_timestamp: message.read_timestamp ? message.read_timestamp.toISOString() : null
-      }));
-
       // Send the messages back to the client
       if (callback) {
         callback({
           status: 'success',
-          messages: formattedMessages
+          messages: result.rows
         });
       }
 
@@ -246,9 +238,6 @@ io.on("connection", (socket) => {
     const senderSocketId = activeUsers.get(sender_id);
     
     try {
-      // Parse the sender_timestamp to ensure it's a valid date
-      const parsedTimestamp = new Date(sender_timestamp);
-      
       // Save message to database and get the ID
       const result = await pool.query(
         `INSERT INTO messages (
@@ -265,12 +254,12 @@ io.on("connection", (socket) => {
           delivery_timestamp,
           is_read,
           read_timestamp
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
         [
           sender_id,
           recipient_id,
           message,
-          parsedTimestamp,
+          sender_timestamp,
           type,
           sender_local_message_id,
           primary_sender_id,
@@ -283,8 +272,7 @@ io.on("connection", (socket) => {
         ]
       );
 
-      const savedMessage = result.rows[0];
-      const messageId = savedMessage.id;
+      const messageId = result.rows[0].id;
 
       // Send acknowledgment back to sender with the message ID
       if (callback) {
@@ -294,18 +282,20 @@ io.on("connection", (socket) => {
         });
       }
 
-      // Format the message for sending through WebSocket
-      const formattedMessage = {
-        ...savedMessage,
-        id: messageId,
-        sender_timestamp: savedMessage.sender_timestamp.toISOString(),
-        delivery_timestamp: null,
-        read_timestamp: null
-      };
-
       // Send message through WebSocket if recipient is online
       if (recipientSocketId) {
-        io.to(recipientSocketId).emit("receive_message", formattedMessage);
+        io.to(recipientSocketId).emit("receive_message", { 
+          id: messageId,
+          sender_id,
+          recipient_id,
+          message,
+          sender_timestamp,
+          type,
+          sender_local_message_id,
+          primary_sender_id,
+          primary_sender_local_message_id,
+          primary_recipient_id
+        });
       } else {
         socket.emit("message_not_delivered", { 
           id: messageId,
