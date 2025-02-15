@@ -47,69 +47,32 @@ const createUsersTable = async () => {
 // Create messages table if it doesn't exist
 const createMessagesTable = async () => {
   try {
-    // First create the new table structure
+    // Drop the existing messages table if it exists
+    await pool.query('DROP TABLE IF EXISTS messages;');
+    
+    // Create the new table with VARCHAR for timestamps
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS messages_new (
+      CREATE TABLE messages (
         id SERIAL PRIMARY KEY,
         type TEXT,
         sender_id INTEGER REFERENCES users(id),
         sender_local_message_id TEXT,
         recipient_id INTEGER REFERENCES users(id),
         message TEXT NOT NULL,
-        sender_timestamp TIMESTAMP NOT NULL,
+        sender_timestamp VARCHAR(255) NOT NULL,
         primary_sender_id INTEGER REFERENCES users(id),
         primary_sender_local_message_id TEXT,
         primary_recipient_id INTEGER REFERENCES users(id),
         is_delivered BOOLEAN,
-        delivery_timestamp TIMESTAMP,
+        delivery_timestamp VARCHAR(255),
         is_read BOOLEAN,
-        read_timestamp TIMESTAMP
+        read_timestamp VARCHAR(255)
       );
     `);
 
-    // Check if old messages table exists
-    const tableExists = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'messages'
-      );
-    `);
-
-    if (tableExists.rows[0].exists) {
-      // Copy data from old table to new table
-      await pool.query(`
-        INSERT INTO messages_new (
-          sender_id,
-          recipient_id,
-          message,
-          sender_timestamp,
-          is_delivered,
-          delivery_timestamp,
-          is_read,
-          read_timestamp
-        )
-        SELECT 
-          userId_from,
-          userId_to,
-          message,
-          timestamp,
-          isDelivered,
-          delivery_timestamp,
-          isRead,
-          read_timestamp
-        FROM messages;
-      `);
-
-      // Drop the old table
-      await pool.query('DROP TABLE messages;');
-    }
-
-    // Rename the new table to messages
-    await pool.query('ALTER TABLE messages_new RENAME TO messages;');
-
-    console.log('Messages table created/updated successfully');
+    console.log('Messages table created successfully');
   } catch (err) {
-    console.error('Error creating/updating messages table:', err);
+    console.error('Error creating messages table:', err);
   }
 };
 
@@ -243,10 +206,15 @@ io.on("connection", (socket) => {
     activeUsers.set(userId, socket.id);
   });
 
-  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null }, callback) => {
+  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null }, callback) => {
     const recipientSocketId = activeUsers.get(recipient_id);
-    const sender_timestamp = new Date().toISOString();
     const senderSocketId = activeUsers.get(sender_id);
+    
+    // Validate sender_timestamp
+    if (!sender_timestamp) {
+      socket.emit("message_error", { error: 'sender_timestamp is required' });
+      return;
+    }
     
     try {
       // Save message to database and get the ID
@@ -350,6 +318,12 @@ io.on("connection", (socket) => {
     try {
       const { message_global_id, is_delivered, delivery_timestamp } = data;
 
+      // Validate delivery_timestamp
+      if (!delivery_timestamp) {
+        socket.emit("delivery_status_error", { error: 'delivery_timestamp is required' });
+        return;
+      }
+
       // Update the message in the database
       const result = await pool.query(
         'UPDATE messages SET is_delivered = $1, delivery_timestamp = $2 WHERE id = $3 RETURNING sender_id',
@@ -376,6 +350,12 @@ io.on("connection", (socket) => {
   socket.on("set_read_status", async (data) => {
     try {
       const { message_global_id, is_read, read_timestamp } = data;
+
+      // Validate read_timestamp
+      if (!read_timestamp) {
+        socket.emit("read_status_error", { error: 'read_timestamp is required' });
+        return;
+      }
 
       // Update the message in the database
       const result = await pool.query(
