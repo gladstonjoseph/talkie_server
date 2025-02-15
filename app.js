@@ -47,12 +47,9 @@ const createUsersTable = async () => {
 // Create messages table if it doesn't exist
 const createMessagesTable = async () => {
   try {
-    // Drop the existing messages table if it exists
-    await pool.query('DROP TABLE IF EXISTS messages;');
-    
-    // Create the new table with VARCHAR for timestamps
+    // Create the table with VARCHAR for timestamps if it doesn't exist
     await pool.query(`
-      CREATE TABLE messages (
+      CREATE TABLE IF NOT EXISTS messages (
         id SERIAL PRIMARY KEY,
         type TEXT,
         sender_id INTEGER REFERENCES users(id),
@@ -210,11 +207,11 @@ io.on("connection", (socket) => {
     const recipientSocketId = activeUsers.get(recipient_id);
     const senderSocketId = activeUsers.get(sender_id);
     
-    // Validate sender_timestamp
-    if (!sender_timestamp) {
-      socket.emit("message_error", { error: 'sender_timestamp is required' });
-      return;
-    }
+    // // Validate sender_timestamp
+    // if (!sender_timestamp) {
+    //   socket.emit("message_error", { error: 'sender_timestamp is required' });
+    //   return;
+    // }
     
     try {
       // Save message to database and get the ID
@@ -318,11 +315,11 @@ io.on("connection", (socket) => {
     try {
       const { message_global_id, is_delivered, delivery_timestamp } = data;
 
-      // Validate delivery_timestamp
-      if (!delivery_timestamp) {
-        socket.emit("delivery_status_error", { error: 'delivery_timestamp is required' });
-        return;
-      }
+      // // Validate delivery_timestamp
+      // if (!delivery_timestamp) {
+      //   socket.emit("delivery_status_error", { error: 'delivery_timestamp is required' });
+      //   return;
+      // }
 
       // Update the message in the database
       const result = await pool.query(
@@ -351,11 +348,11 @@ io.on("connection", (socket) => {
     try {
       const { message_global_id, is_read, read_timestamp } = data;
 
-      // Validate read_timestamp
-      if (!read_timestamp) {
-        socket.emit("read_status_error", { error: 'read_timestamp is required' });
-        return;
-      }
+      // // Validate read_timestamp
+      // if (!read_timestamp) {
+      //   socket.emit("read_status_error", { error: 'read_timestamp is required' });
+      //   return;
+      // }
 
       // Update the message in the database
       const result = await pool.query(
