@@ -468,6 +468,50 @@ io.on("connection", (socket) => {
       }
     }
   });
+
+  socket.on("create_call", async (data, callback) => {
+    try {
+      const { caller_id, callee_id, call_room_url } = data;
+      
+      // Validate required parameters
+      if (!caller_id || !callee_id || !call_room_url) {
+        callback({
+          status: 'error',
+          message: 'Missing required parameters'
+        });
+        return;
+      }
+
+      // Get the socket ID of the callee
+      const calleeSocketId = activeUsers.get(callee_id);
+      
+      if (!calleeSocketId) {
+        callback({
+          status: 'error',
+          message: 'Callee is not online'
+        });
+        return;
+      }
+
+      // Emit incoming call event to callee
+      io.to(calleeSocketId).emit('incoming_call', {
+        caller_id,
+        call_room_url
+      });
+
+      callback({
+        status: 'success',
+        message: 'Call request sent successfully'
+      });
+
+    } catch (error) {
+      console.error('Error creating call:', error);
+      callback({
+        status: 'error',
+        message: 'Failed to create call'
+      });
+    }
+  });
 });
 
 server.keepAliveTimeout = 120 * 1000;
