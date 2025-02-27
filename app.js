@@ -17,6 +17,22 @@ const pool = new Pool({
   }
 });
 
+// Database configuration
+const FLUSH_DATABASE_ON_START = true; // Set this to true to flush the database before initialization
+
+// Function to drop all tables
+const dropAllTables = async () => {
+  try {
+    // Drop tables in correct order (messages depends on users)
+    await pool.query('DROP TABLE IF EXISTS messages CASCADE');
+    await pool.query('DROP TABLE IF EXISTS users CASCADE');
+    console.log('All tables dropped successfully');
+  } catch (err) {
+    console.error('Error dropping tables:', err);
+    throw err;
+  }
+};
+
 // Test database connection
 pool.connect((err, client, release) => {
   if (err) {
@@ -41,6 +57,7 @@ const createUsersTable = async () => {
     console.log('Users table created successfully');
   } catch (err) {
     console.error('Error creating users table:', err);
+    throw err; // Propagate the error
   }
 };
 
@@ -66,15 +83,32 @@ const createMessagesTable = async () => {
         read_timestamp VARCHAR(255)
       );
     `);
-
     console.log('Messages table created successfully');
   } catch (err) {
     console.error('Error creating messages table:', err);
+    throw err; // Propagate the error
   }
 };
 
-createUsersTable();
-createMessagesTable();
+// Initialize tables in the correct order
+const initializeTables = async () => {
+  try {
+    if (FLUSH_DATABASE_ON_START) {
+      console.log('Flushing database...');
+      await dropAllTables();
+      console.log('Creating new tables...');
+      await createUsersTable();
+      await createMessagesTable();
+      console.log('All tables initialized successfully');
+    } else {
+      console.log('Skipping table initialization - using existing tables');
+    }
+  } catch (err) {
+    console.error('Error during table initialization:', err);
+  }
+};
+
+initializeTables();
 
 // User Registration
 app.post('/api/register', async (req, res) => {
