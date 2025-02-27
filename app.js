@@ -11,7 +11,7 @@ app.use(cors());
 
 // PostgreSQL connection
 const pool = new Pool({
-  connectionString: "postgresql://talkie_db_qzri_user:KNmfCEUNZrYkyvSo8Kl1NGf8rcUHUyvS@dpg-cuc40s3qf0us73c5gg8g-a.oregon-postgres.render.com/talkie_db_qzri",
+  connectionString: "postgresql://talkie_db_hp4d_user:gzUeHK8xvlLMXtjtD9DETds9fdPyI7aK@dpg-cuvtt13tq21c738ultp0-a.oregon-postgres.render.com/talkie_db_hp4d",
   ssl: {
     rejectUnauthorized: false
   }
