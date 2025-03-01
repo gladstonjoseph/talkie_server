@@ -535,6 +535,30 @@ io.on("connection", (socket) => {
       ack({ status: "error", message: error.message });
     }
   });
+
+  // Handle call action reports (answer/decline)
+  socket.on("send_report_call_action", async (data) => {
+    try {
+      const { caller_id, caller_local_call_id, is_answered } = data;
+      console.log('Received call action report:', { caller_id, caller_local_call_id, is_answered });
+
+      // Get the socket ID of the caller
+      const callerSocketId = activeUsers.get(caller_id);
+      
+      if (callerSocketId) {
+        // Forward the report to the caller
+        io.to(callerSocketId).emit("receive_report_call_action", {
+          caller_local_call_id,
+          is_answered
+        });
+        console.log('Call action report forwarded to caller');
+      } else {
+        console.log('Caller not online:', caller_id);
+      }
+    } catch (error) {
+      console.error('Error handling call action report:', error);
+    }
+  });
 });
 
 server.keepAliveTimeout = 120 * 1000;
