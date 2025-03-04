@@ -80,7 +80,8 @@ const createMessagesTable = async () => {
         is_delivered BOOLEAN,
         delivery_timestamp VARCHAR(255),
         is_read BOOLEAN,
-        read_timestamp VARCHAR(255)
+        read_timestamp VARCHAR(255),
+        group_id TEXT
       );
     `);
     console.log('Messages table created successfully');
@@ -265,15 +266,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null }, callback) => {
+  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_id = null }, callback) => {
     const recipientSocketId = activeUsers.get(recipient_id);
     const senderSocketId = activeUsers.get(sender_id);
-    
-    // // Validate sender_timestamp
-    // if (!sender_timestamp) {
-    //   socket.emit("message_error", { error: 'sender_timestamp is required' });
-    //   return;
-    // }
     
     try {
       // Save message to database and get the ID
@@ -291,8 +286,9 @@ io.on("connection", (socket) => {
           is_delivered,
           delivery_timestamp,
           is_read,
-          read_timestamp
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+          read_timestamp,
+          group_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
         [
           sender_id,
           recipient_id,
@@ -306,7 +302,8 @@ io.on("connection", (socket) => {
           null,
           null,
           null,
-          null
+          null,
+          group_id
         ]
       );
 
@@ -332,7 +329,8 @@ io.on("connection", (socket) => {
           sender_local_message_id,
           primary_sender_id,
           primary_sender_local_message_id,
-          primary_recipient_id
+          primary_recipient_id,
+          group_id
         });
       } else {
         socket.emit("message_not_delivered", { 
