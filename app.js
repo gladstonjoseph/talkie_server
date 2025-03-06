@@ -16,6 +16,7 @@ const pool = new Pool({
     rejectUnauthorized: false
   }
 });
+
 // Database configuration
 const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database before initialization
 
