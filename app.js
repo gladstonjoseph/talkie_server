@@ -345,6 +345,77 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle group messages
+  socket.on("send_group_message", async ({ sender_id, recipient_ids, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_id = null }, callback) => {
+    try {
+      // Validate that recipient_ids is an array
+      if (!Array.isArray(recipient_ids) || recipient_ids.length === 0) {
+        socket.emit("message_error", { error: 'recipient_ids must be a non-empty array' });
+        return;
+      }
+
+      // Object to store mapping between sender_local_message_id and global_message_id
+      const message_id_mapping = {};
+      
+      // For each recipient, create a message entry in the database
+      for (const recipient_id of recipient_ids) {
+        // Save message to database and get the ID
+        const result = await pool.query(
+          `INSERT INTO messages (
+            sender_id,
+            recipient_id,
+            message,
+            sender_timestamp,
+            type,
+            sender_local_message_id,
+            primary_sender_id,
+            primary_sender_local_message_id,
+            primary_recipient_id,
+            is_delivered,
+            delivery_timestamp,
+            is_read,
+            read_timestamp,
+            group_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+          [
+            sender_id,
+            recipient_id,
+            message,
+            sender_timestamp,
+            type,
+            sender_local_message_id,
+            primary_sender_id,
+            primary_sender_local_message_id,
+            primary_recipient_id,
+            null,
+            null,
+            null,
+            null,
+            group_id
+          ]
+        );
+
+        const global_message_id = result.rows[0].id;
+        
+        // Store the mapping with recipient_id to handle multiple recipients
+        if (!message_id_mapping[recipient_id]) {
+          message_id_mapping[recipient_id] = {};
+        }
+        message_id_mapping[recipient_id][sender_local_message_id] = global_message_id;
+      }
+
+      // Send acknowledgment back to sender with the message ID mapping
+      if (callback) {
+        callback({ 
+          message_id_mapping
+        });
+      }
+    } catch (err) {
+      console.error('Error saving group message to database:', err);
+      socket.emit("message_error", { error: 'Error saving group message' });
+    }
+  });
+
   socket.on("search_users", async (query) => {
     try {
       if (!query) {
