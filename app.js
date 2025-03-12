@@ -81,7 +81,8 @@ const createMessagesTable = async () => {
         delivery_timestamp VARCHAR(255),
         is_read BOOLEAN,
         read_timestamp VARCHAR(255),
-        group_id TEXT
+        group_id TEXT,
+        group_info JSONB
       );
     `);
     console.log('Messages table created successfully');
@@ -346,7 +347,7 @@ io.on("connection", (socket) => {
   });
 
   // Handle group messages
-  socket.on("send_group_message", async ({ sender_id, recipient_ids, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_id = null }, callback) => {
+  socket.on("send_group_message", async ({ sender_id, recipient_ids, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_id = null, group_info = null }, callback) => {
     try {
       // Validate that recipient_ids is an array
       if (!Array.isArray(recipient_ids) || recipient_ids.length === 0) {
@@ -375,8 +376,9 @@ io.on("connection", (socket) => {
             delivery_timestamp,
             is_read,
             read_timestamp,
-            group_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+            group_id,
+            group_info
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
           [
             sender_id,
             recipient_id,
@@ -391,7 +393,8 @@ io.on("connection", (socket) => {
             null,
             null,
             null,
-            group_id
+            group_id,
+            group_info
           ]
         );
 
