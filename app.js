@@ -81,7 +81,6 @@ const createMessagesTable = async () => {
         delivery_timestamp VARCHAR(255),
         is_read BOOLEAN,
         read_timestamp VARCHAR(255),
-        group_id TEXT,
         group_info JSONB,
         is_group_message BOOLEAN DEFAULT FALSE
       );
@@ -268,7 +267,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_id = null, is_group_message = false }, callback) => {
+  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, is_group_message = false }, callback) => {
     const recipientSocketId = activeUsers.get(recipient_id);
     const senderSocketId = activeUsers.get(sender_id);
     
@@ -289,9 +288,8 @@ io.on("connection", (socket) => {
           delivery_timestamp,
           is_read,
           read_timestamp,
-          group_id,
           is_group_message
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
         [
           sender_id,
           recipient_id,
@@ -306,7 +304,6 @@ io.on("connection", (socket) => {
           null,
           null,
           null,
-          group_id,
           is_group_message
         ]
       );
@@ -334,7 +331,6 @@ io.on("connection", (socket) => {
           primary_sender_id,
           primary_sender_local_message_id,
           primary_recipient_id,
-          group_id,
           is_group_message
         });
       } else {
@@ -351,7 +347,7 @@ io.on("connection", (socket) => {
   });
 
   // Handle group messages
-  socket.on("send_group_message", async ({ sender_id, recipient_ids, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_id = null, group_info = null, is_group_message = true }, callback) => {
+  socket.on("send_group_message", async ({ sender_id, recipient_ids, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_info = null, is_group_message = true }, callback) => {
     try {
       // Validate that recipient_ids is an array
       if (!Array.isArray(recipient_ids) || recipient_ids.length === 0) {
@@ -380,10 +376,9 @@ io.on("connection", (socket) => {
             delivery_timestamp,
             is_read,
             read_timestamp,
-            group_id,
             group_info,
             is_group_message
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
           [
             sender_id,
             recipient_id,
@@ -398,7 +393,6 @@ io.on("connection", (socket) => {
             null,
             null,
             null,
-            group_id,
             group_info,
             is_group_message
           ]
