@@ -230,6 +230,75 @@ const io = new Server(server, {
 // Store active connections
 const activeUsers = new Map();
 
+// Reusable function to save message to database and notify recipients
+async function saveAndSendMessage({
+  sender_id,
+  recipient_id,
+  message,
+  type = null,
+  sender_local_message_id = null,
+  primary_sender_id = null,
+  primary_sender_local_message_id = null,
+  primary_recipient_id = null,
+  sender_timestamp = null,
+  group_info = null,
+  is_group_message = false
+}) {
+  try {
+    // Save message to database and get the ID
+    const result = await pool.query(
+      `INSERT INTO messages (
+        sender_id,
+        recipient_id,
+        message,
+        sender_timestamp,
+        type,
+        sender_local_message_id,
+        primary_sender_id,
+        primary_sender_local_message_id,
+        primary_recipient_id,
+        is_delivered,
+        delivery_timestamp,
+        is_read,
+        read_timestamp,
+        group_info,
+        is_group_message
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      [
+        sender_id,
+        recipient_id,
+        message,
+        sender_timestamp,
+        type,
+        sender_local_message_id,
+        primary_sender_id,
+        primary_sender_local_message_id,
+        primary_recipient_id,
+        null,
+        null,
+        null,
+        null,
+        group_info,
+        is_group_message
+      ]
+    );
+
+    // Get the complete message object from the database
+    const savedMessage = result.rows[0];
+    
+    // Check if recipient is online and send message
+    const recipientSocketId = activeUsers.get(recipient_id);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit("receive_message", savedMessage);
+    }
+    
+    return savedMessage;
+  } catch (err) {
+    console.error('Error saving message to database:', err);
+    throw err;
+  }
+}
+
 io.on("connection", (socket) => {
   console.log('New client connected');
 
@@ -268,80 +337,40 @@ io.on("connection", (socket) => {
   });
 
   socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, is_group_message = false }, callback) => {
-    const recipientSocketId = activeUsers.get(recipient_id);
-    const senderSocketId = activeUsers.get(sender_id);
-    
     try {
-      // Save message to database and get the ID
-      const result = await pool.query(
-        `INSERT INTO messages (
-          sender_id,
-          recipient_id,
-          message,
-          sender_timestamp,
-          type,
-          sender_local_message_id,
-          primary_sender_id,
-          primary_sender_local_message_id,
-          primary_recipient_id,
-          is_delivered,
-          delivery_timestamp,
-          is_read,
-          read_timestamp,
-          is_group_message
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
-        [
-          sender_id,
-          recipient_id,
-          message,
-          sender_timestamp,
-          type,
-          sender_local_message_id,
-          primary_sender_id,
-          primary_sender_local_message_id,
-          primary_recipient_id,
-          null,
-          null,
-          null,
-          null,
-          is_group_message
-        ]
-      );
-
-      const messageId = result.rows[0].id;
+      // Use the reusable function to save and send the message
+      const savedMessage = await saveAndSendMessage({
+        sender_id,
+        recipient_id,
+        message,
+        type,
+        sender_local_message_id,
+        primary_sender_id,
+        primary_sender_local_message_id,
+        primary_recipient_id,
+        sender_timestamp,
+        is_group_message
+      });
 
       // Send acknowledgment back to sender with the message ID
       if (callback) {
         callback({ 
-          messageId,
-          sender_local_message_id: sender_local_message_id 
+          messageId: savedMessage.id,
+          sender_local_message_id: savedMessage.sender_local_message_id 
         });
       }
 
-      // Send message through WebSocket if recipient is online
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit("receive_message", { 
-          id: messageId,
-          sender_id,
-          recipient_id,
-          message,
-          sender_timestamp,
-          type,
-          sender_local_message_id,
-          primary_sender_id,
-          primary_sender_local_message_id,
-          primary_recipient_id,
-          is_group_message
-        });
-      } else {
+      // If recipient is not online, notify sender
+      const recipientSocketId = activeUsers.get(recipient_id);
+      if (!recipientSocketId) {
         socket.emit("message_not_delivered", { 
-          id: messageId,
+          id: savedMessage.id,
           recipient_id, 
           message 
         });
       }
     } catch (err) {
-      console.error('Error saving message to database:', err);
+      console.error('Error in send_message:', err);
       socket.emit("message_error", { error: 'Error saving message' });
     }
   });
@@ -360,51 +389,26 @@ io.on("connection", (socket) => {
       
       // For each recipient, create a message entry in the database
       for (const recipient_id of recipient_ids) {
-        // Save message to database and get the ID
-        const result = await pool.query(
-          `INSERT INTO messages (
-            sender_id,
-            recipient_id,
-            message,
-            sender_timestamp,
-            type,
-            sender_local_message_id,
-            primary_sender_id,
-            primary_sender_local_message_id,
-            primary_recipient_id,
-            is_delivered,
-            delivery_timestamp,
-            is_read,
-            read_timestamp,
-            group_info,
-            is_group_message
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
-          [
-            sender_id,
-            recipient_id,
-            message,
-            sender_timestamp,
-            type,
-            sender_local_message_id,
-            primary_sender_id,
-            primary_sender_local_message_id,
-            primary_recipient_id,
-            null,
-            null,
-            null,
-            null,
-            group_info,
-            is_group_message
-          ]
-        );
+        // Use the reusable function to save and send the message
+        const savedMessage = await saveAndSendMessage({
+          sender_id,
+          recipient_id,
+          message,
+          type,
+          sender_local_message_id,
+          primary_sender_id,
+          primary_sender_local_message_id,
+          primary_recipient_id,
+          sender_timestamp,
+          group_info,
+          is_group_message
+        });
 
-        const global_message_id = result.rows[0].id;
-        
         // Store the mapping with recipient_id to handle multiple recipients
         if (!message_id_mapping[recipient_id]) {
           message_id_mapping[recipient_id] = {};
         }
-        message_id_mapping[recipient_id][sender_local_message_id] = global_message_id;
+        message_id_mapping[recipient_id][sender_local_message_id] = savedMessage.id;
       }
 
       // Send acknowledgment back to sender with the message ID mapping
