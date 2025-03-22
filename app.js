@@ -51,7 +51,8 @@ const createUsersTable = async () => {
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
+        password TEXT NOT NULL,
+        profile_picture_url TEXT
       );
     `);
     console.log('Users table created successfully');
@@ -633,6 +634,34 @@ io.on("connection", (socket) => {
       }
     } catch (error) {
       console.error('Error handling call action report:', error);
+    }
+  });
+
+  // Handle profile picture URL updates
+  socket.on('user_profile_update', async (data, callback) => {
+    try {
+      const { userId, profilePictureUrl } = data;
+      
+      // Update the user's profile picture URL in the database
+      const result = await pool.query(
+        'UPDATE users SET profile_picture_url = $1 WHERE id = $2 RETURNING id',
+        [profilePictureUrl, userId]
+      );
+
+      // if (result.rows.length > 0) {
+      //   // Notify other connected clients about the profile update
+      //   socket.broadcast.emit('user_profile_updated', {
+      //     userId,
+      //     profilePictureUrl
+      //   });
+        
+      //   callback({ success: true });
+      // } else {
+      //   callback({ success: false, error: 'User not found' });
+      // }
+    } catch (error) {
+      console.error('Error updating profile picture URL:', error);
+      callback({ success: false, error: 'Server error' });
     }
   });
 });
