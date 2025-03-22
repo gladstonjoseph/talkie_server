@@ -18,7 +18,7 @@ const pool = new Pool({
 });
 
 // Database configuration
-const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database before initialization
+const FLUSH_DATABASE_ON_START = true; // Set this to true to flush the database before initialization
 
 // Function to drop all tables
 const dropAllTables = async () => {
@@ -92,8 +92,6 @@ const createMessagesTable = async () => {
     throw err; // Propagate the error
   }
 };
-
-await createUsersTable();
 
 // Initialize tables in the correct order
 const initializeTables = async () => {
@@ -650,17 +648,17 @@ io.on("connection", (socket) => {
         [profilePictureUrl, userId]
       );
 
-      if (result.rows.length > 0) {
-        // Notify other connected clients about the profile update
-        socket.broadcast.emit('user_profile_updated', {
-          userId,
-          profilePictureUrl
-        });
+      // if (result.rows.length > 0) {
+      //   // Notify other connected clients about the profile update
+      //   socket.broadcast.emit('user_profile_updated', {
+      //     userId,
+      //     profilePictureUrl
+      //   });
         
-        callback({ success: true });
-      } else {
-        callback({ success: false, error: 'User not found' });
-      }
+      //   callback({ success: true });
+      // } else {
+      //   callback({ success: false, error: 'User not found' });
+      // }
     } catch (error) {
       console.error('Error updating profile picture URL:', error);
       callback({ success: false, error: 'Server error' });
