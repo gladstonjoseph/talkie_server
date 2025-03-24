@@ -638,7 +638,7 @@ io.on("connection", (socket) => {
   });
 
   // Handle profile picture URL updates
-  socket.on('user_profile_update', async (data, callback) => {
+  socket.on("user_profile_update", async (data, callback) => {
     try {
       const { userId, profilePictureUrl } = data;
       
@@ -662,6 +662,45 @@ io.on("connection", (socket) => {
     } catch (error) {
       console.error('Error updating profile picture URL:', error);
       callback({ success: false, error: 'Server error' });
+    }
+  });
+
+  // Handle user profile fetch requests
+  socket.on("get_user_profile", async (userId, callback) => {
+    try {
+      console.log('Fetching user profile for user ID:', userId);
+      
+      // Query the database for user information
+      const result = await pool.query(
+        'SELECT id, name, email FROM users WHERE id = $1',
+        [userId]
+      );
+      
+      if (result.rows.length > 0) {
+        const user = result.rows[0];
+        callback({
+          status: 'success',
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email
+            // profile_picture_url is intentionally omitted per requirements
+          }
+        });
+        console.log('User profile fetched successfully for user ID:', userId);
+      } else {
+        callback({
+          status: 'error',
+          message: 'User not found'
+        });
+        console.log('User not found for user ID:', userId);
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      callback({
+        status: 'error',
+        message: 'Failed to fetch user profile'
+      });
     }
   });
 });
