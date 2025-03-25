@@ -183,7 +183,8 @@ app.post('/api/login', async (req, res) => {
     res.json({
       message: 'Login successful',
       userId: user.id,
-      name: user.name
+      name: user.name,
+      profile_picture_url: user.profile_picture_url
     });
   } catch (err) {
     console.error(err);
@@ -202,7 +203,7 @@ app.get('/api/users/:userId', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, name, email FROM users WHERE id = $1',
+      'SELECT id, name, email, profile_picture_url FROM users WHERE id = $1',
       [userId]
     );
 
