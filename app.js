@@ -673,7 +673,7 @@ io.on("connection", (socket) => {
       
       // Query the database for user information
       const result = await pool.query(
-        'SELECT id, name, email FROM users WHERE id = $1',
+        'SELECT id, name, email, profile_picture_url FROM users WHERE id = $1',
         [userId]
       );
       
@@ -684,8 +684,8 @@ io.on("connection", (socket) => {
           user: {
             id: user.id,
             name: user.name,
-            email: user.email
-            // profile_picture_url is intentionally omitted per requirements
+            email: user.email,
+            profile_picture_url: user.profile_picture_url
           }
         });
         console.log('User profile fetched successfully for user ID:', userId);
