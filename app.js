@@ -11,14 +11,14 @@ app.use(cors());
 
 // PostgreSQL connection
 const pool = new Pool({
-  connectionString: "postgresql://talkie_db_hp4d_user:gzUeHK8xvlLMXtjtD9DETds9fdPyI7aK@dpg-cuvtt13tq21c738ultp0-a.oregon-postgres.render.com/talkie_db_hp4d",
+  connectionString: "postgresql://pyne_postgres_user:9yEmWK5MNQDfxEAbi7AaKiRanw09StjY@dpg-cvu363h5pdvs73e45f2g-a/pyne_postgres",
   ssl: {
     rejectUnauthorized: false
   }
 });
 
 // Database configuration
-const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database before initialization
+const FLUSH_DATABASE_ON_START = true; // Set this to true to flush the database before initialization
 
 // Function to drop all tables
 const dropAllTables = async () => {
