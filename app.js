@@ -245,6 +245,7 @@ async function saveAndSendMessage({
   primary_recipient_id = null,
   sender_timestamp = null,
   group_info = null,
+  file_info = null,
   is_group_message = false
 }) {
   try {
@@ -265,8 +266,9 @@ async function saveAndSendMessage({
         is_read,
         read_timestamp,
         group_info,
+        file_info,
         is_group_message
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
       [
         sender_id,
         recipient_id,
@@ -282,6 +284,7 @@ async function saveAndSendMessage({
         null,
         null,
         group_info,
+        file_info,
         is_group_message
       ]
     );
@@ -339,7 +342,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, is_group_message = false }, callback) => {
+  socket.on("send_message", async ({ sender_id, recipient_id, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, file_info = null, is_group_message = false }, callback) => {
     try {
       // Use the reusable function to save and send the message
       const savedMessage = await saveAndSendMessage({
@@ -352,6 +355,7 @@ io.on("connection", (socket) => {
         primary_sender_local_message_id,
         primary_recipient_id,
         sender_timestamp,
+        file_info,
         is_group_message
       });
 
@@ -379,7 +383,7 @@ io.on("connection", (socket) => {
   });
 
   // Handle group messages
-  socket.on("send_group_message", async ({ sender_id, recipient_ids, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_info = null, is_group_message = true }, callback) => {
+  socket.on("send_group_message", async ({ sender_id, recipient_ids, message, type = null, sender_local_message_id = null, primary_sender_id = null, primary_sender_local_message_id = null, primary_recipient_id = null, sender_timestamp = null, group_info = null, file_info = null, is_group_message = true }, callback) => {
     try {
       // Validate that recipient_ids is an array
       if (!Array.isArray(recipient_ids) || recipient_ids.length === 0) {
@@ -404,6 +408,7 @@ io.on("connection", (socket) => {
           primary_recipient_id,
           sender_timestamp,
           group_info,
+          file_info,
           is_group_message
         });
 
