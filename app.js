@@ -18,7 +18,7 @@ const pool = new Pool({
 });
 
 // Database configuration
-const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database before initialization
+const FLUSH_DATABASE_ON_START = true; // Set this to true to flush the database before initialization
 
 // Function to drop all tables
 const dropAllTables = async () => {
@@ -83,6 +83,7 @@ const createMessagesTable = async () => {
         is_read BOOLEAN,
         read_timestamp VARCHAR(255),
         group_info JSONB,
+        file_info JSONB,
         is_group_message BOOLEAN DEFAULT FALSE
       );
     `);
