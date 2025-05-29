@@ -587,63 +587,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("create_call", async (callData, ack) => {
-    try {
-      const { caller_id, callee_id, call_room_url, caller_local_call_id } = callData;
-      
-      // Validate required parameters
-      if (!caller_id || !callee_id || !call_room_url || !caller_local_call_id) {
-        throw new Error("Missing required call parameters");
-      }
-
-      console.log('Creating call:', { caller_id, callee_id, call_room_url, caller_local_call_id });
-
-      // Get the socket ID of the callee
-      const calleeSocketId = activeUsers.get(callee_id);
-      
-      if (calleeSocketId) {
-        // Emit incoming call event to callee
-        io.to(calleeSocketId).emit("incoming_call", {
-          caller_id,
-          call_room_url,
-          caller_local_call_id  // Pass the caller's local call ID to the callee
-        });
-        
-        ack({ status: "success" });
-      } else {
-        console.log('Callee not online:', callee_id);
-        ack({ status: "error", message: "Callee is not online" });
-      }
-    } catch (error) {
-      console.error('Error creating call:', error);
-      ack({ status: "error", message: error.message });
-    }
-  });
-
-  // Handle call action reports (answer/decline)
-  socket.on("send_report_call_action", async (data) => {
-    try {
-      const { caller_id, caller_local_call_id, is_answered } = data;
-      console.log('Received call action report:', { caller_id, caller_local_call_id, is_answered });
-
-      // Get the socket ID of the caller
-      const callerSocketId = activeUsers.get(caller_id);
-      
-      if (callerSocketId) {
-        // Forward the report to the caller
-        io.to(callerSocketId).emit("receive_report_call_action", {
-          caller_local_call_id,
-          is_answered
-        });
-        console.log('Call action report forwarded to caller');
-      } else {
-        console.log('Caller not online:', caller_id);
-      }
-    } catch (error) {
-      console.error('Error handling call action report:', error);
-    }
-  });
-
   // Handle profile picture URL updates
   socket.on("user_profile_update", async (data, callback) => {
     try {
