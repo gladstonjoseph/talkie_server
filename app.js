@@ -431,10 +431,15 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("search_users", async (query) => {
+  socket.on("search_users", async (query, callback) => {
     try {
+      console.log('Searching users for query:', query);
+      
       if (!query) {
-        socket.emit("search_users_result", []);
+        callback({
+          status: 'success',
+          users: []
+        });
         return;
       }
 
@@ -443,10 +448,18 @@ io.on("connection", (socket) => {
         [`%${query}%`]
       );
 
-      socket.emit("search_users_result", result.rows);
+      callback({
+        status: 'success',
+        users: result.rows
+      });
+      
+      console.log(`Found ${result.rows.length} users for query: ${query}`);
     } catch (err) {
       console.error('Error searching users via WebSocket:', err);
-      socket.emit("search_users_error", { error: 'Error searching users' });
+      callback({
+        status: 'error',
+        message: 'Error searching users'
+      });
     }
   });
 
