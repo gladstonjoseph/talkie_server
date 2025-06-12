@@ -11,14 +11,14 @@ app.use(cors());
 
 // PostgreSQL connection
 const pool = new Pool({
-  connectionString: "postgresql://pyne_db_user:Y18fqRmJcyRVEV6SFng9FOyLNlHvl5O4@dpg-d0hqvr49c44c73cvhub0-a/pyne_db",
+  connectionString: "postgresql://pyne_db_73qp_user:AL0VT81m4SFkGVRhDMggN5aS7JlLjdI2@dpg-d15kmteuk2gs73fr6c50-a/pyne_db_73qp",
   ssl: {
     rejectUnauthorized: false
   }
 });
 
 // Database configuration
-const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database before initialization
+const FLUSH_DATABASE_ON_START = true; // Set this to true to flush the database before initialization
 
 // Function to drop all tables
 const dropAllTables = async () => {
