@@ -18,7 +18,7 @@ const pool = new Pool({
 });
 
 // Database configuration
-const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database before initialization
+const FLUSH_DATABASE_ON_START = true; // Set this to true to flush the database before initialization
 
 // Function to drop all tables
 const dropAllTables = async () => {
@@ -73,7 +73,7 @@ const createMessagesTable = async () => {
         sender_id INTEGER REFERENCES users(id),
         sender_local_message_id TEXT,
         recipient_id INTEGER REFERENCES users(id),
-        message TEXT NOT NULL,
+        message TEXT,
         sender_timestamp VARCHAR(255) NOT NULL,
         primary_sender_id INTEGER REFERENCES users(id),
         primary_sender_local_message_id TEXT,
