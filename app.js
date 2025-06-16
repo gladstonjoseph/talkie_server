@@ -183,7 +183,7 @@ app.post('/api/login', async (req, res) => {
 
     res.json({
       message: 'Login successful',
-      userId: user.id,
+      global_user_id: user.id,
       name: user.name,
       profile_picture_url: user.profile_picture_url
     });
@@ -193,31 +193,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Get User by ID
-app.get('/api/users/:userId', async (req, res) => {
-  try {
-    const userId = req.params.userId;
 
-    // Validate that userId is provided and is a number
-    if (!userId || isNaN(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID' });
-    }
-
-    const result = await pool.query(
-      'SELECT id, name, email, profile_picture_url FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
 
 const port = process.env.PORT || 3001;
 const server = http.createServer(app);
@@ -308,15 +284,15 @@ async function saveAndSendMessage({
 io.on("connection", (socket) => {
   console.log('New client connected');
 
-  socket.on("register", (userId) => {
-    console.log('User registered:', userId);
-    socket.userId = userId;
-    activeUsers.set(userId, socket.id);
+  socket.on("register", (global_user_id) => {
+    console.log('User registered:', global_user_id);
+    socket.global_user_id = global_user_id;
+    activeUsers.set(global_user_id, socket.id);
   });
 
-  socket.on("get_messages", async (userId, ack) => {
+  socket.on("get_messages", async (global_user_id, ack) => {
     try {
-      console.log('Fetching undelivered messages for user:', userId);
+      console.log('Fetching undelivered messages for user:', global_user_id);
       
       // Query to get all undelivered messages for the user
       const result = await pool.query(`
@@ -324,9 +300,9 @@ io.on("connection", (socket) => {
         WHERE recipient_id = $1 
         AND (is_delivered = false OR is_delivered IS NULL)
         ORDER BY sender_timestamp ASC
-      `, [userId]);
+      `, [global_user_id]);
 
-      console.log(`Found ${result.rows.length} undelivered messages for user ${userId}`);
+      console.log(`Found ${result.rows.length} undelivered messages for user ${global_user_id}`);
       
       // Always call the acknowledgment callback
       ack({
@@ -464,8 +440,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    if (socket.userId) {
-      activeUsers.delete(socket.userId);
+    if (socket.global_user_id) {
+      activeUsers.delete(socket.global_user_id);
     }
     console.log('Client disconnected');
   });
@@ -603,18 +579,18 @@ io.on("connection", (socket) => {
   // Handle profile picture URL updates
   socket.on("user_profile_update", async (data, callback) => {
     try {
-      const { userId, profilePictureUrl } = data;
+      const { global_user_id, profilePictureUrl } = data;
       
       // Update the user's profile picture URL in the database
       const result = await pool.query(
         'UPDATE users SET profile_picture_url = $1 WHERE id = $2 RETURNING id',
-        [profilePictureUrl, userId]
+        [profilePictureUrl, global_user_id]
       );
 
       if (result.rows.length > 0) {
         // Notify other connected clients about the profile update
         // socket.broadcast.emit('user_profile_updated', {
-        //   userId,
+        //   global_user_id,
         //   profilePictureUrl
         // });
         
@@ -629,14 +605,14 @@ io.on("connection", (socket) => {
   });
 
   // Handle user profile fetch requests
-  socket.on("get_user_profile", async (userId, callback) => {
+  socket.on("get_user_profile", async (global_user_id, callback) => {
     try {
-      console.log('Fetching user profile for user ID:', userId);
+      console.log('Fetching user profile for user ID:', global_user_id);
       
       // Query the database for user information
       const result = await pool.query(
         'SELECT id, name, email, profile_picture_url FROM users WHERE id = $1',
-        [userId]
+        [global_user_id]
       );
       
       if (result.rows.length > 0) {
@@ -650,13 +626,13 @@ io.on("connection", (socket) => {
             profile_picture_url: user.profile_picture_url
           }
         });
-        console.log('User profile fetched successfully for user ID:', userId);
+        console.log('User profile fetched successfully for user ID:', global_user_id);
       } else {
         callback({
           status: 'error',
           message: 'User not found'
         });
-        console.log('User not found for user ID:', userId);
+        console.log('User not found for user ID:', global_user_id);
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
