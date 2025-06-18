@@ -479,15 +479,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("set_read_status", async (data) => {
+  socket.on("set_read_status", async (data, callback) => {
     try {
       const { message_global_id, is_read, read_timestamp } = data;
-
-      // // Validate read_timestamp
-      // if (!read_timestamp) {
-      //   socket.emit("read_status_error", { error: 'read_timestamp is required' });
-      //   return;
-      // }
 
       // Update the message in the database
       const result = await pool.query(
@@ -506,9 +500,32 @@ io.on("connection", (socket) => {
             read_timestamp
           });
         }
+        
+        // Send success acknowledgement
+        if (callback) {
+          callback({
+            status: 'success',
+            message: 'Read status updated successfully'
+          });
+        }
+      } else {
+        // Message not found
+        if (callback) {
+          callback({
+            status: 'error',
+            message: 'Message not found'
+          });
+        }
       }
     } catch (err) {
       console.error('Error updating read status:', err);
+      // Send error acknowledgement
+      if (callback) {
+        callback({
+          status: 'error',
+          message: 'Failed to update read status'
+        });
+      }
     }
   });
 
