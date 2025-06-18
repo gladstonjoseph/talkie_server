@@ -446,7 +446,7 @@ io.on("connection", (socket) => {
     console.log('Client disconnected');
   });
 
-  socket.on("set_delivery_status", async (data) => {
+  socket.on("set_delivery_status", async (data, callback) => {
     try {
       const { message_global_id, is_delivered, delivery_timestamp } = data;
 
@@ -473,9 +473,32 @@ io.on("connection", (socket) => {
             delivery_timestamp
           });
         }
+        
+        // Send success acknowledgement
+        if (callback) {
+          callback({
+            status: 'success',
+            message: 'Delivery status updated successfully'
+          });
+        }
+      } else {
+        // Message not found
+        if (callback) {
+          callback({
+            status: 'error',
+            message: 'Message not found'
+          });
+        }
       }
     } catch (err) {
       console.error('Error updating delivery status:', err);
+      // Send error acknowledgement
+      if (callback) {
+        callback({
+          status: 'error',
+          message: 'Failed to update delivery status'
+        });
+      }
     }
   });
 
