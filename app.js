@@ -23,8 +23,9 @@ const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database
 // Function to drop all tables
 const dropAllTables = async () => {
   try {
-    // Drop tables in correct order (messages depends on users)
+    // Drop tables in correct order (messages and app_instances depend on users)
     await pool.query('DROP TABLE IF EXISTS messages CASCADE');
+    await pool.query('DROP TABLE IF EXISTS app_instances CASCADE');
     await pool.query('DROP TABLE IF EXISTS users CASCADE');
     console.log('All tables dropped successfully');
   } catch (err) {
@@ -94,6 +95,26 @@ const createMessagesTable = async () => {
   }
 };
 
+// Create app_instances table if it doesn't exist
+const createAppInstancesTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_instances (
+        id SERIAL PRIMARY KEY,
+        global_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        app_instance_id VARCHAR(255) UNIQUE NOT NULL,
+        is_online BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('App instances table created successfully');
+  } catch (err) {
+    console.error('Error creating app_instances table:', err);
+    throw err; // Propagate the error
+  }
+};
+
 // Initialize tables in the correct order
 const initializeTables = async () => {
   try {
@@ -103,9 +124,14 @@ const initializeTables = async () => {
       console.log('Creating new tables...');
       await createUsersTable();
       await createMessagesTable();
+      await createAppInstancesTable();
       console.log('All tables initialized successfully');
     } else {
       console.log('Skipping table initialization - using existing tables');
+      // Always try to create tables if they don't exist
+      await createUsersTable();
+      await createMessagesTable();
+      await createAppInstancesTable();
     }
   } catch (err) {
     console.error('Error during table initialization:', err);
@@ -290,6 +316,56 @@ io.on("connection", (socket) => {
     activeUsers.set(global_user_id, socket.id);
   });
 
+  socket.on("register_app_instance_id", async (data, callback) => {
+    try {
+      const { global_user_id, app_instance_id } = data;
+      
+      console.log('Registering app instance:', { global_user_id, app_instance_id });
+      
+      // Check if this app instance ID already exists
+      const existingInstance = await pool.query(
+        'SELECT * FROM app_instances WHERE app_instance_id = $1',
+        [app_instance_id]
+      );
+      
+      if (existingInstance.rows.length > 0) {
+        // Update existing instance to online
+        await pool.query(
+          'UPDATE app_instances SET is_online = $1, updated_at = CURRENT_TIMESTAMP WHERE app_instance_id = $2',
+          [true, app_instance_id]
+        );
+        console.log('Updated existing app instance to online:', app_instance_id);
+      } else {
+        // Create new app instance
+        await pool.query(
+          'INSERT INTO app_instances (global_user_id, app_instance_id, is_online) VALUES ($1, $2, $3)',
+          [global_user_id, app_instance_id, true]
+        );
+        console.log('Created new app instance:', app_instance_id);
+      }
+      
+      // Store app instance ID in socket for cleanup on disconnect
+      socket.app_instance_id = app_instance_id;
+      
+      // Send success acknowledgment
+      if (callback) {
+        callback({
+          status: 'success',
+          message: 'App instance registered successfully'
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error registering app instance:', error);
+      if (callback) {
+        callback({
+          status: 'error',
+          message: 'Failed to register app instance'
+        });
+      }
+    }
+  });
+
   socket.on("get_messages", async (global_user_id, ack) => {
     try {
       console.log('Fetching undelivered messages for user:', global_user_id);
@@ -439,10 +515,24 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     if (socket.global_user_id) {
       activeUsers.delete(socket.global_user_id);
     }
+    
+    // Set app instance to offline if it exists
+    if (socket.app_instance_id) {
+      try {
+        await pool.query(
+          'UPDATE app_instances SET is_online = $1, updated_at = CURRENT_TIMESTAMP WHERE app_instance_id = $2',
+          [false, socket.app_instance_id]
+        );
+        console.log('Set app instance offline:', socket.app_instance_id);
+      } catch (error) {
+        console.error('Error setting app instance offline:', error);
+      }
+    }
+    
     console.log('Client disconnected');
   });
 
