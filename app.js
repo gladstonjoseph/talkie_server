@@ -203,13 +203,13 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-
-
 const port = process.env.PORT || 3001;
 const server = http.createServer(app);
 
 // Socket.io setup
 const io = new Server(server, {
+  // Enforce WebSocket-only connections, disabling HTTP polling.
+  transports: ['websocket'],
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
@@ -221,12 +221,14 @@ const activeUsers = new Map();
 
 // Socket.IO JWT Authentication Middleware
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
+  const authHeader = socket.handshake.headers.authorization;
 
-  if (!token) {
-    console.log("Authentication error: No token provided");
-    return next(new Error('Authentication error: No token provided'));
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log("Authentication error: No Bearer token provided in headers");
+    return next(new Error('Authentication error: No Bearer token provided'));
   }
+
+  const token = authHeader.substring(7, authHeader.length);
 
   // IMPORTANT: Use the same secret key as in the login route
   jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random', (err, decoded) => {
