@@ -4,6 +4,7 @@ const http = require("http");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const { Pool } = require("pg");
+const jwt = require("jsonwebtoken");
 
 const app = express();
 app.use(express.json());
@@ -181,8 +182,17 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    // Create JWT
+    // IMPORTANT: Use an environment variable for the secret key in a real production app
+    const token = jwt.sign(
+      { userId: user.id },
+      process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random',
+      { expiresIn: '30d' } // Token expires in 30 days
+    );
+
     res.json({
       message: 'Login successful',
+      token: token,
       global_user_id: user.id,
       name: user.name,
       profile_picture_url: user.profile_picture_url
@@ -208,6 +218,26 @@ const io = new Server(server, {
 
 // Store active connections
 const activeUsers = new Map();
+
+// Socket.IO JWT Authentication Middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+
+  if (!token) {
+    console.log("Authentication error: No token provided");
+    return next(new Error('Authentication error: No token provided'));
+  }
+
+  // IMPORTANT: Use the same secret key as in the login route
+  jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random', (err, decoded) => {
+    if (err) {
+      console.log("Authentication error: Invalid token");
+      return next(new Error('Authentication error: Invalid token'));
+    }
+    socket.userId = decoded.userId; // Attach userId to the socket object
+    next();
+  });
+});
 
 // Reusable function to save message to database and notify recipients
 async function saveAndSendMessage({
@@ -282,12 +312,21 @@ async function saveAndSendMessage({
 }
 
 io.on("connection", (socket) => {
-  console.log('New client connected');
+  console.log(`User connected: ${socket.id} with user ID: ${socket.userId}`);
 
-  socket.on("register", (global_user_id) => {
-    console.log('User registered:', global_user_id);
-    socket.global_user_id = global_user_id;
-    activeUsers.set(global_user_id, socket.id);
+  // Store the user's socket ID with their user ID
+  activeUsers.set(socket.userId, socket.id);
+
+  // When a user disconnects, remove them from the active users map
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.id}`);
+    // Find the user ID associated with the disconnected socket
+    for (let [userId, socketId] of activeUsers.entries()) {
+      if (socketId === socket.id) {
+        activeUsers.delete(userId);
+        break;
+      }
+    }
   });
 
   socket.on("get_messages", async (global_user_id, ack) => {
@@ -437,13 +476,6 @@ io.on("connection", (socket) => {
         message: 'Error searching users'
       });
     }
-  });
-
-  socket.on("disconnect", () => {
-    if (socket.global_user_id) {
-      activeUsers.delete(socket.global_user_id);
-    }
-    console.log('Client disconnected');
   });
 
   socket.on("set_delivery_status", async (data, callback) => {
