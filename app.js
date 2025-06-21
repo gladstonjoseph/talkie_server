@@ -219,6 +219,21 @@ const io = new Server(server, {
 // Store active connections
 const activeUsers = new Map();
 
+// 🧪 TESTING: Force disconnect after 35 seconds to test JWT expiration (runs once)
+let hasTestedExpiration = false;
+setTimeout(() => {
+  if (!hasTestedExpiration) {
+    hasTestedExpiration = true;
+    const connectedSockets = Array.from(io.sockets.sockets.values());
+    if (connectedSockets.length > 0) {
+      console.log(`🧪 JWT EXPIRATION TEST: Disconnecting ${connectedSockets.length} clients after 35 seconds to test expired token handling`);
+      connectedSockets.forEach(socket => {
+        socket.disconnect(true);
+      });
+    }
+  }
+}, 35000); // After 35 seconds (5 seconds after token expires)
+
 // Socket.IO JWT Authentication Middleware
 io.use((socket, next) => {
   console.log(`🔐 Authentication attempt from ${socket.id} at ${new Date().toISOString()}`);
