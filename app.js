@@ -219,27 +219,6 @@ const io = new Server(server, {
 // Store active connections
 const activeUsers = new Map();
 
-// 🧪 TESTING: Force disconnect all clients every 10 seconds to simulate server restarts
-const TESTING_MODE = true; // Set to false to disable testing
-if (TESTING_MODE) {
-  console.log("🧪 TESTING MODE: Will disconnect all clients every 10 seconds");
-  setInterval(() => {
-    const connectedSockets = Array.from(io.sockets.sockets.values());
-    console.log(`🧪 TESTING: Forcibly disconnecting ${connectedSockets.length} clients to simulate server restart`);
-    
-    // Clear the activeUsers map (simulating memory loss)
-    activeUsers.clear();
-    console.log(`🧪 TESTING: Cleared activeUsers map (${activeUsers.size} users now)`);
-    
-    // Disconnect all sockets
-    connectedSockets.forEach(socket => {
-      socket.disconnect(true); // true = force disconnect
-    });
-    
-    console.log("🧪 TESTING: All clients disconnected. Waiting for reconnections...");
-  }, 10000); // Every 10 seconds
-}
-
 // Socket.IO JWT Authentication Middleware
 io.use((socket, next) => {
   console.log(`🔐 Authentication attempt from ${socket.id} at ${new Date().toISOString()}`);
