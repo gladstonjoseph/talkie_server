@@ -219,24 +219,50 @@ const io = new Server(server, {
 // Store active connections
 const activeUsers = new Map();
 
+// 🧪 TESTING: Force disconnect all clients every 10 seconds to simulate server restarts
+const TESTING_MODE = true; // Set to false to disable testing
+if (TESTING_MODE) {
+  console.log("🧪 TESTING MODE: Will disconnect all clients every 10 seconds");
+  setInterval(() => {
+    const connectedSockets = Array.from(io.sockets.sockets.values());
+    console.log(`🧪 TESTING: Forcibly disconnecting ${connectedSockets.length} clients to simulate server restart`);
+    
+    // Clear the activeUsers map (simulating memory loss)
+    activeUsers.clear();
+    console.log(`🧪 TESTING: Cleared activeUsers map (${activeUsers.size} users now)`);
+    
+    // Disconnect all sockets
+    connectedSockets.forEach(socket => {
+      socket.disconnect(true); // true = force disconnect
+    });
+    
+    console.log("🧪 TESTING: All clients disconnected. Waiting for reconnections...");
+  }, 10000); // Every 10 seconds
+}
+
 // Socket.IO JWT Authentication Middleware
 io.use((socket, next) => {
+  console.log(`🔐 Authentication attempt from ${socket.id} at ${new Date().toISOString()}`);
+  
   const authHeader = socket.handshake.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log("Authentication error: No Bearer token provided in headers");
+    console.log(`❌ Authentication failed for ${socket.id}: No Bearer token provided`);
     return next(new Error('Authentication error: No Bearer token provided'));
   }
 
   const token = authHeader.substring(7, authHeader.length);
+  console.log(`🔑 Token received for ${socket.id}: ${token.substring(0, 20)}...`);
 
   // IMPORTANT: Use the same secret key as in the login route
   jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random', (err, decoded) => {
     if (err) {
-      console.log("Authentication error: Invalid token");
+      console.log(`❌ Authentication failed for ${socket.id}: Invalid token - ${err.message}`);
       return next(new Error('Authentication error: Invalid token'));
     }
+    
     socket.userId = decoded.userId; // Attach userId to the socket object
+    console.log(`✅ Authentication successful for ${socket.id}: User ${socket.userId}`);
     next();
   });
 });
@@ -314,18 +340,22 @@ async function saveAndSendMessage({
 }
 
 io.on("connection", (socket) => {
-  console.log(`User connected: ${socket.id} with user ID: ${socket.userId}`);
+  console.log(`🟢 User connected: ${socket.id} with user ID: ${socket.userId} at ${new Date().toISOString()}`);
 
   // Store the user's socket ID with their user ID
   activeUsers.set(socket.userId, socket.id);
+  console.log(`👥 Active users count: ${activeUsers.size}`);
 
   // When a user disconnects, remove them from the active users map
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
+  socket.on('disconnect', (reason) => {
+    console.log(`🔴 User disconnected: ${socket.id} (User ${socket.userId}) at ${new Date().toISOString()}`);
+    console.log(`🔴 Disconnect reason: ${reason}`);
+    
     // Find the user ID associated with the disconnected socket
     for (let [userId, socketId] of activeUsers.entries()) {
       if (socketId === socket.id) {
         activeUsers.delete(userId);
+        console.log(`👥 Removed user ${userId} from active users. Count now: ${activeUsers.size}`);
         break;
       }
     }
