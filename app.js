@@ -254,8 +254,8 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"]
   },
-  pingInterval: 10,
-  pingTimeout: 5
+  pingInterval: 10000,
+  pingTimeout: 5000
 });
 
 // Store active connections
