@@ -25,6 +25,7 @@ const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database
 const dropAllTables = async () => {
   try {
     // Drop tables in correct order (messages depends on users)
+    await pool.query('DROP TABLE IF EXISTS app_instances CASCADE');
     await pool.query('DROP TABLE IF EXISTS messages CASCADE');
     await pool.query('DROP TABLE IF EXISTS users CASCADE');
     console.log('All tables dropped successfully');
@@ -95,6 +96,24 @@ const createMessagesTable = async () => {
   }
 };
 
+// Create app_instances table if it doesn't exist
+const createAppInstancesTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_instances (
+        id SERIAL PRIMARY KEY,
+        global_user_id INTEGER REFERENCES users(id),
+        app_instance_id TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    console.log('App instances table created successfully');
+  } catch (err) {
+    console.error('Error creating app_instances table:', err);
+    throw err; // Propagate the error
+  }
+};
+
 // Initialize tables in the correct order
 const initializeTables = async () => {
   try {
@@ -104,9 +123,11 @@ const initializeTables = async () => {
       console.log('Creating new tables...');
       await createUsersTable();
       await createMessagesTable();
+      await createAppInstancesTable();
       console.log('All tables initialized successfully');
     } else {
       console.log('Skipping table initialization - using existing tables');
+      await createAppInstancesTable();  // Remove this later
     }
   } catch (err) {
     console.error('Error during table initialization:', err);
@@ -161,11 +182,15 @@ app.post('/api/register', async (req, res) => {
 // User Login
 app.post('/api/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, app_instance_id } = req.body;
 
     // Validate input
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    if (!app_instance_id) {
+      return res.status(400).json({ error: 'App instance ID is required' });
     }
 
     // Find user
@@ -189,6 +214,18 @@ app.post('/api/login', async (req, res) => {
       process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random',
       { expiresIn: '30d' } // Token expires in 30 days
     );
+
+    // Save app_instance_id to the app_instances table
+    try {
+      await pool.query(
+        'INSERT INTO app_instances (global_user_id, app_instance_id) VALUES ($1, $2)',
+        [user.id, app_instance_id]
+      );
+      console.log(`App instance registered: ${app_instance_id} for user ${user.id}`);
+    } catch (err) {
+      console.error('Error saving app instance:', err);
+      return res.status(500).json({ error: 'Failed to register app instance' });
+    }
 
     res.json({
       message: 'Login successful',
@@ -722,6 +759,39 @@ io.on("connection", (socket) => {
       callback({
         status: 'error',
         message: 'Failed to fetch user profile'
+      });
+    }
+  });
+
+  // Handle app instance deletion
+  socket.on("delete_app_instance", async (app_instance_id, callback) => {
+    try {
+      console.log('Deleting app instance:', app_instance_id, 'for user:', socket.userId);
+      
+      // Delete the app instance from the database
+      const result = await pool.query(
+        'DELETE FROM app_instances WHERE global_user_id = $1 AND app_instance_id = $2 RETURNING id',
+        [socket.userId, app_instance_id]
+      );
+
+      if (result.rows.length > 0) {
+        console.log(`App instance ${app_instance_id} deleted successfully for user ${socket.userId}`);
+        callback({
+          status: 'success',
+          message: 'App instance deleted successfully'
+        });
+      } else {
+        console.log(`App instance ${app_instance_id} not found for user ${socket.userId}`);
+        callback({
+          status: 'error',
+          message: 'App instance not found'
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting app instance:', error);
+      callback({
+        status: 'error',
+        message: 'Failed to delete app instance'
       });
     }
   });
