@@ -306,6 +306,19 @@ function broadcastToUser(userId, event, data) {
   return true;
 }
 
+function syncSenderDevices(sender_id, event, data) {
+  const senderUserDevices = activeUsers.get(sender_id);
+  if (!senderUserDevices || senderUserDevices.size === 0) {
+    console.log(`📡 No active devices found for user ${sender_id}`);
+  }
+
+  for (const [appInstanceId, socketId] of senderUserDevices) {
+    io.to(socketId).emit(event, data);
+  }
+
+  console.log(`📡 Synced ${event} to ${senderUserDevices.size} active app instances for user ${sender_id}`);
+}
+
 // Reusable function to save message to database and notify recipients
 async function saveAndSendMessage({
   sender_id,
@@ -367,7 +380,10 @@ async function saveAndSendMessage({
     
     // Broadcast message to all active app instances of the recipient
     const wasDelivered = broadcastToUser(recipient_id, "receive_message", savedMessage);
-    
+
+    // Sync message to senders devices
+    syncSenderDevices(sender_id, "receive_message", savedMessage);
+
     return savedMessage;
   } catch (err) {
     console.error('Error saving message to database:', err);
