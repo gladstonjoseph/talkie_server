@@ -127,7 +127,7 @@ const initializeTables = async () => {
       console.log('All tables initialized successfully');
     } else {
       console.log('Skipping table initialization - using existing tables');
-      await createAppInstancesTable();  // Remove this later
+      // await createAppInstancesTable();  // Remove this later
     }
   } catch (err) {
     console.error('Error during table initialization:', err);
@@ -210,7 +210,10 @@ app.post('/api/login', async (req, res) => {
     // Create JWT
     // IMPORTANT: Use an environment variable for the secret key in a real production app
     const token = jwt.sign(
-      { userId: user.id },
+      { 
+        userId: user.id,
+        appInstanceId: app_instance_id
+      },
       process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random',
       { expiresIn: '30d' } // Token expires in 30 days
     );
@@ -254,7 +257,7 @@ const io = new Server(server, {
 });
 
 // Store active connections
-const activeUsers = new Map();
+const activeUsers = new Map(); // userId → Map{appInstanceId → socketId}
 
 // Socket.IO JWT Authentication Middleware
 io.use((socket, next) => {
@@ -278,10 +281,30 @@ io.use((socket, next) => {
     }
     
     socket.userId = decoded.userId; // Attach userId to the socket object
-    console.log(`✅ Authentication successful for ${socket.id}: User ${socket.userId}`);
+    socket.appInstanceId = decoded.appInstanceId; // Attach appInstanceId to the socket object
+    console.log(`✅ Authentication successful for ${socket.id}: User ${socket.userId}, App Instance ${socket.appInstanceId}`);
     next();
   });
 });
+
+// Helper function to broadcast message to all active app instances of a user
+function broadcastToUser(userId, event, data) {
+  const userDevices = activeUsers.get(userId);
+  if (!userDevices || userDevices.size === 0) {
+    console.log(`📡 No active devices found for user ${userId}`);
+    return false;
+  }
+  
+  let sentCount = 0;
+  // Emit to all active devices for this user
+  for (const [appInstanceId, socketId] of userDevices) {
+    io.to(socketId).emit(event, data);
+    sentCount++;
+  }
+  
+  console.log(`📡 Broadcasted ${event} to ${sentCount} active app instances for user ${userId}`);
+  return true;
+}
 
 // Reusable function to save message to database and notify recipients
 async function saveAndSendMessage({
@@ -342,11 +365,8 @@ async function saveAndSendMessage({
     // Get the complete message object from the database
     const savedMessage = result.rows[0];
     
-    // Check if recipient is online and send message
-    const recipientSocketId = activeUsers.get(recipient_id);
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit("receive_message", savedMessage);
-    }
+    // Broadcast message to all active app instances of the recipient
+    const wasDelivered = broadcastToUser(recipient_id, "receive_message", savedMessage);
     
     return savedMessage;
   } catch (err) {
@@ -356,23 +376,38 @@ async function saveAndSendMessage({
 }
 
 io.on("connection", (socket) => {
-  console.log(`🟢 User connected: ${socket.id} with user ID: ${socket.userId} at ${new Date().toISOString()}`);
+  console.log(`🟢 User connected: ${socket.id} with user ID: ${socket.userId}, App Instance: ${socket.appInstanceId} at ${new Date().toISOString()}`);
 
-  // Store the user's socket ID with their user ID
-  activeUsers.set(socket.userId, socket.id);
-  console.log(`👥 Active users count: ${activeUsers.size}`);
+  // Immediately register app instance from JWT
+  if (socket.appInstanceId) {
+    if (!activeUsers.has(socket.userId)) {
+      activeUsers.set(socket.userId, new Map());
+    }
+    activeUsers.get(socket.userId).set(socket.appInstanceId, socket.id);
+    console.log(`✅ App instance ${socket.appInstanceId} registered. Active instances: ${activeUsers.get(socket.userId).size}`);
+  } else {
+    console.log(`❌ No app instance ID in JWT for socket ${socket.id}`);
+    socket.disconnect();
+    return;
+  }
 
-  // When a user disconnects, remove them from the active users map
+  // When a user disconnects, remove them from the active app instances map
   socket.on('disconnect', (reason) => {
-    console.log(`🔴 User disconnected: ${socket.id} (User ${socket.userId}) at ${new Date().toISOString()}`);
+    console.log(`🔴 User disconnected: ${socket.id} (User ${socket.userId}, App Instance ${socket.appInstanceId}) at ${new Date().toISOString()}`);
     console.log(`🔴 Disconnect reason: ${reason}`);
     
-    // Find the user ID associated with the disconnected socket
-    for (let [userId, socketId] of activeUsers.entries()) {
-      if (socketId === socket.id) {
-        activeUsers.delete(userId);
-        console.log(`👥 Removed user ${userId} from active users. Count now: ${activeUsers.size}`);
-        break;
+    // Remove from activeUsers
+    if (socket.userId && socket.appInstanceId) {
+      const userMap = activeUsers.get(socket.userId);
+      if (userMap) {
+        userMap.delete(socket.appInstanceId);
+        console.log(`👥 Removed app instance ${socket.appInstanceId} from active instances. User ${socket.userId} now has ${userMap.size} active devices`);
+        
+        // Clean up empty user entry
+        if (userMap.size === 0) {
+          activeUsers.delete(socket.userId);
+          console.log(`🧹 Removed user ${socket.userId} from active users (no more devices)`);
+        }
       }
     }
   });
@@ -430,13 +465,13 @@ io.on("connection", (socket) => {
         });
       }
 
-      // If recipient is not online, notify sender
-      const recipientSocketId = activeUsers.get(recipient_id);
-      if (!recipientSocketId) {
+      // Check if message was delivered to any active app instances
+      const wasDelivered = broadcastToUser(savedMessage.recipient_id, "receive_message", savedMessage);
+      if (!wasDelivered) {
         socket.emit("message_not_delivered", { 
           id: savedMessage.id,
-          recipient_id, 
-          message 
+          recipient_id: savedMessage.recipient_id, 
+          message: savedMessage.message 
         });
       }
     } catch (err) {
@@ -544,15 +579,12 @@ io.on("connection", (socket) => {
 
       if (result.rows.length > 0) {
         const senderId = result.rows[0].sender_id;
-        // If the sender is online, send them the delivery status update
-        const senderSocketId = activeUsers.get(senderId);
-        if (senderSocketId) {
-          io.to(senderSocketId).emit('delivery_status_update', {
-            global_id: message_global_id,
-            is_delivered,
-            delivery_timestamp
-          });
-        }
+        // Broadcast delivery status update to all active app instances of the sender
+        broadcastToUser(senderId, 'delivery_status_update', {
+          global_id: message_global_id,
+          is_delivered,
+          delivery_timestamp
+        });
         
         // Send success acknowledgement
         if (callback) {
@@ -594,15 +626,12 @@ io.on("connection", (socket) => {
 
       if (result.rows.length > 0) {
         const senderId = result.rows[0].sender_id;
-        // If the sender is online, send them the read status update
-        const senderSocketId = activeUsers.get(senderId);
-        if (senderSocketId) {
-          io.to(senderSocketId).emit('read_status_update', {
-            global_id: message_global_id,
-            is_read,
-            read_timestamp
-          });
-        }
+        // Broadcast read status update to all active app instances of the sender
+        broadcastToUser(senderId, 'read_status_update', {
+          global_id: message_global_id,
+          is_read,
+          read_timestamp
+        });
         
         // Send success acknowledgement
         if (callback) {
