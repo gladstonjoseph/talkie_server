@@ -465,15 +465,15 @@ io.on("connection", (socket) => {
         });
       }
 
-      // Check if message was delivered to any active app instances
-      const wasDelivered = broadcastToUser(savedMessage.recipient_id, "receive_message", savedMessage);
-      if (!wasDelivered) {
-        socket.emit("message_not_delivered", { 
-          id: savedMessage.id,
-          recipient_id: savedMessage.recipient_id, 
-          message: savedMessage.message 
-        });
-      }
+      // // Check if message was delivered to any active app instances
+      // const wasDelivered = broadcastToUser(savedMessage.recipient_id, "receive_message", savedMessage);
+      // if (!wasDelivered) {
+      //   socket.emit("message_not_delivered", { 
+      //     id: savedMessage.id,
+      //     recipient_id: savedMessage.recipient_id, 
+      //     message: savedMessage.message 
+      //   });
+      // }
     } catch (err) {
       console.error('Error in send_message:', err);
       socket.emit("message_error", { error: 'Error saving message' });
