@@ -253,7 +253,9 @@ const io = new Server(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  pingInterval: 10,
+  pingTimeout: 5
 });
 
 // Store active connections
