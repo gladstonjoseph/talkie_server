@@ -262,7 +262,7 @@ const io = new Server(server, {
 const activeUsers = new Map(); // userId → Map{appInstanceId → socketId}
 
 // Socket.IO JWT Authentication Middleware
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   console.log(`🔐 Authentication attempt from ${socket.id} at ${new Date().toISOString()}`);
   
   const authHeader = socket.handshake.headers.authorization;
@@ -276,16 +276,44 @@ io.use((socket, next) => {
   console.log(`🔑 Token received for ${socket.id}: ${token.substring(0, 20)}...`);
 
   // IMPORTANT: Use the same secret key as in the login route
-  jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random', (err, decoded) => {
+  jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random', async (err, decoded) => {
     if (err) {
       console.log(`❌ Authentication failed for ${socket.id}: Invalid token - ${err.message}`);
       return next(new Error('Authentication error: Invalid token'));
     }
     
-    socket.userId = decoded.userId; // Attach userId to the socket object
-    socket.appInstanceId = decoded.appInstanceId; // Attach appInstanceId to the socket object
-    console.log(`✅ Authentication successful for ${socket.id}: User ${socket.userId}, App Instance ${socket.appInstanceId}`);
-    next();
+    try {
+      // Validate app instance exists in database and belongs to the correct user
+      console.log(`🔍 Validating app instance ${decoded.appInstanceId} for user ${decoded.userId}`);
+      
+      const appInstanceResult = await pool.query(
+        'SELECT global_user_id FROM app_instances WHERE app_instance_id = $1',
+        [decoded.appInstanceId]
+      );
+      
+      if (appInstanceResult.rows.length === 0) {
+        console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} not found in database`);
+        return next(new Error('APP_INSTANCE_NOT_FOUND'));
+      }
+      
+      const dbUserId = appInstanceResult.rows[0].global_user_id;
+      
+      if (dbUserId !== decoded.userId) {
+        console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${dbUserId}, but JWT claims user ${decoded.userId}`);
+        return next(new Error('APP_INSTANCE_USER_MISMATCH'));
+      }
+      
+      console.log(`✅ App instance validation successful for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${decoded.userId}`);
+      
+      socket.userId = decoded.userId; // Attach userId to the socket object
+      socket.appInstanceId = decoded.appInstanceId; // Attach appInstanceId to the socket object
+      console.log(`✅ Authentication successful for ${socket.id}: User ${socket.userId}, App Instance ${socket.appInstanceId}`);
+      next();
+      
+    } catch (dbError) {
+      console.error(`❌ Database error during app instance validation for ${socket.id}:`, dbError);
+      return next(new Error('APP_INSTANCE_VALIDATION_ERROR'));
+    }
   });
 });
 
