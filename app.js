@@ -275,10 +275,36 @@ io.use(async (socket, next) => {
   const token = authHeader.substring(7, authHeader.length);
   console.log(`🔑 Token received for ${socket.id}: ${token.substring(0, 20)}...`);
 
+  // Decode JWT payload before verification to extract app instance ID
+  // This allows us to clean up expired tokens even if verification fails
+  const payload = jwt.decode(token);
+  const appInstanceId = payload?.appInstanceId;
+  
+  console.log(`🔍 Decoded app instance ID from token: ${appInstanceId}`);
+
   // IMPORTANT: Use the same secret key as in the login route
   jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random', async (err, decoded) => {
     if (err) {
       console.log(`❌ Authentication failed for ${socket.id}: Invalid token - ${err.message}`);
+      
+      // Clean up expired/invalid app instance from database
+      if (appInstanceId) {
+        try {
+          const deleteResult = await pool.query(
+            'DELETE FROM app_instances WHERE app_instance_id = $1',
+            [appInstanceId]
+          );
+          
+          if (deleteResult.rowCount > 0) {
+            console.log(`🧹 Cleaned up expired app instance: ${appInstanceId}`);
+          } else {
+            console.log(`ℹ️ App instance ${appInstanceId} was not found in database (already cleaned up)`);
+          }
+        } catch (dbError) {
+          console.error(`❌ Error cleaning up app instance ${appInstanceId}:`, dbError);
+        }
+      }
+      
       return next(new Error('Authentication error: Invalid token'));
     }
     
