@@ -229,7 +229,7 @@ app.post('/api/login', async (req, res) => {
         appInstanceId: app_instance_id
       },
       process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random',
-      { expiresIn: '60s' } // Token expires in 60 seconds
+      { expiresIn: '300s' } // Token expires in 5 minutes
     );
 
     // Save app_instance_id to the app_instances table
