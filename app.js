@@ -357,6 +357,23 @@ io.use(async (socket, next) => {
       
       if (updateResult.rowCount === 0) {
         console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} last connected more than 45 seconds ago`);
+        
+        // Delete the stale app instance from the database
+        try {
+          const deleteResult = await pool.query(
+            'DELETE FROM app_instances WHERE app_instance_id = $1',
+            [decoded.appInstanceId]
+          );
+          
+          if (deleteResult.rowCount > 0) {
+            console.log(`🧹 Deleted stale app instance: ${decoded.appInstanceId} (last connected > 45 seconds ago)`);
+          } else {
+            console.log(`ℹ️ Stale app instance ${decoded.appInstanceId} was not found for deletion (may have been deleted already)`);
+          }
+        } catch (deleteError) {
+          console.error(`❌ Error deleting stale app instance ${decoded.appInstanceId}:`, deleteError);
+        }
+        
         return next(new Error('APP_INSTANCE_INACTIVE'));
       }
       
