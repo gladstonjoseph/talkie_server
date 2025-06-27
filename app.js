@@ -289,14 +289,71 @@ io.use(async (socket, next) => {
   const token = authHeader.substring(7, authHeader.length);
   console.log(`🔑 Token received for ${socket.id}: ${token.substring(0, 20)}...`);
 
-  // Decode JWT payload before verification to extract app instance ID
-  // This allows us to clean up expired tokens even if verification fails
+  // Decode JWT payload before verification to extract app instance ID and user ID
+  // This allows us to do all validations before expensive JWT verification
   const payload = jwt.decode(token);
   const appInstanceId = payload?.appInstanceId;
+  const tokenUserId = payload?.userId;
   
-  console.log(`🔍 Decoded app instance ID from token: ${appInstanceId}`);
+  console.log(`🔍 Decoded from token: App Instance ID: ${appInstanceId}, User ID: ${tokenUserId}`);
 
-  // IMPORTANT: Use the same secret key as in the login route
+  // Combined Step 1 & 2: Check app instance timing and user validation with single query
+  if (appInstanceId && tokenUserId) {
+    try {
+      console.log(`🔍 Validating app instance ${appInstanceId} and timing check with single query`);
+      
+      const appInstanceResult = await pool.query(
+        'SELECT global_user_id, last_connected FROM app_instances WHERE app_instance_id = $1',
+        [appInstanceId]
+      );
+      
+      if (appInstanceResult.rows.length === 0) {
+        console.log(`❌ Authentication failed for ${socket.id}: App instance ${appInstanceId} not found in database`);
+        return next(new Error('APP_INSTANCE_NOT_FOUND'));
+      }
+      
+      const appInstance = appInstanceResult.rows[0];
+      const dbUserId = appInstance.global_user_id;
+      const lastConnected = appInstance.last_connected;
+      
+      // Check timing first (before user validation)
+      if (lastConnected !== null) {
+        const now = new Date();
+        const lastConnectedDate = new Date(lastConnected);
+        const timeDifferenceMs = now.getTime() - lastConnectedDate.getTime();
+        const timeDifferenceSeconds = timeDifferenceMs / 1000;
+        
+        console.log(`🕐 App instance ${appInstanceId} last connected ${timeDifferenceSeconds.toFixed(1)} seconds ago`);
+        
+        if (timeDifferenceSeconds > 45) {
+          console.log(`❌ Authentication failed for ${socket.id}: App instance ${appInstanceId} last connected more than 45 seconds ago - skipping JWT verification`);
+          
+          // Delete the stale app instance from the database
+          await pool.query('DELETE FROM app_instances WHERE app_instance_id = $1', [appInstanceId]);
+          console.log(`🧹 Deleted stale app instance: ${appInstanceId} (last connected > 45 seconds ago)`);
+          
+          return next(new Error('APP_INSTANCE_INACTIVE'));
+        }
+      } else {
+        console.log(`🆕 App instance ${appInstanceId} is connecting for the first time (last_connected is NULL)`);
+      }
+      
+      // Check user ownership
+      if (dbUserId !== tokenUserId) {
+        console.log(`❌ Authentication failed for ${socket.id}: App instance ${appInstanceId} belongs to user ${dbUserId}, but JWT claims user ${tokenUserId}`);
+        return next(new Error('APP_INSTANCE_USER_MISMATCH'));
+      }
+      
+      console.log(`✅ App instance validation successful for ${socket.id}: App instance ${appInstanceId} belongs to user ${tokenUserId} and timing is valid`);
+      
+    } catch (dbError) {
+      console.error(`❌ Database error during app instance validation for ${socket.id}:`, dbError);
+      return next(new Error('APP_INSTANCE_VALIDATION_ERROR'));
+    }
+  }
+
+  // Final Step: Verify JWT (only after all other validations pass)
+  console.log(`🔑 All validations passed - proceeding with JWT verification for ${socket.id}`);
   jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random', async (err, decoded) => {
     if (err) {
       console.log(`❌ Authentication failed for ${socket.id}: Invalid token - ${err.message}`);
@@ -323,53 +380,7 @@ io.use(async (socket, next) => {
     }
     
     try {
-      // Step 1: Validate app instance exists in database and belongs to the correct user
-      console.log(`🔍 Validating app instance ${decoded.appInstanceId} for user ${decoded.userId}`);
-      
-      const appInstanceResult = await pool.query(
-        'SELECT global_user_id, last_connected FROM app_instances WHERE app_instance_id = $1',
-        [decoded.appInstanceId]
-      );
-      
-      if (appInstanceResult.rows.length === 0) {
-        console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} not found in database`);
-        return next(new Error('APP_INSTANCE_NOT_FOUND'));
-      }
-      
-      const appInstance = appInstanceResult.rows[0];
-      const dbUserId = appInstance.global_user_id;
-      const lastConnected = appInstance.last_connected;
-      
-      if (dbUserId !== decoded.userId) {
-        console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${dbUserId}, but JWT claims user ${decoded.userId}`);
-        return next(new Error('APP_INSTANCE_USER_MISMATCH'));
-      }
-      
-      console.log(`✅ App instance validation successful for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${decoded.userId}`);
-      
-      // Step 2: Check if app instance last connected is more than 45 seconds ago
-      if (lastConnected !== null) {
-        const now = new Date();
-        const lastConnectedDate = new Date(lastConnected);
-        const timeDifferenceMs = now.getTime() - lastConnectedDate.getTime();
-        const timeDifferenceSeconds = timeDifferenceMs / 1000;
-        
-        console.log(`🕐 App instance ${decoded.appInstanceId} last connected ${timeDifferenceSeconds.toFixed(1)} seconds ago`);
-        
-        if (timeDifferenceSeconds > 45) {
-          console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} last connected more than 45 seconds ago`);
-          
-          // Delete the stale app instance from the database
-          await pool.query('DELETE FROM app_instances WHERE app_instance_id = $1', [decoded.appInstanceId]);
-          console.log(`🧹 Deleted stale app instance: ${decoded.appInstanceId} (last connected > 45 seconds ago)`);
-          
-          return next(new Error('APP_INSTANCE_INACTIVE'));
-        }
-      } else {
-        console.log(`🆕 App instance ${decoded.appInstanceId} is connecting for the first time (last_connected is NULL)`);
-      }
-      
-      // Step 3: Update last_connected and allow connection
+      // Update last_connected and allow connection
       await pool.query('UPDATE app_instances SET last_connected = NOW() WHERE app_instance_id = $1', [decoded.appInstanceId]);
       console.log(`📅 Updated last_connected timestamp for app instance ${decoded.appInstanceId} - connection allowed`);
       
@@ -379,7 +390,7 @@ io.use(async (socket, next) => {
       next();
       
     } catch (dbError) {
-      console.error(`❌ Database error during app instance validation for ${socket.id}:`, dbError);
+      console.error(`❌ Database error during final update for ${socket.id}:`, dbError);
       return next(new Error('APP_INSTANCE_VALIDATION_ERROR'));
     }
   });
