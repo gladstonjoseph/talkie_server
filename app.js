@@ -229,7 +229,7 @@ app.post('/api/login', async (req, res) => {
         appInstanceId: app_instance_id
       },
       process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random',
-      { expiresIn: '300s' } // Token expires in 5 minutes
+              { expiresIn: '14d' } // Token expires in 14 days
     );
 
     // Save app_instance_id to the app_instances table
@@ -325,12 +325,12 @@ io.use(async (socket, next) => {
         
         console.log(`🕐 App instance ${appInstanceId} last connected ${timeDifferenceSeconds.toFixed(1)} seconds ago`);
         
-        if (timeDifferenceSeconds > 45) {
-          console.log(`❌ Authentication failed for ${socket.id}: App instance ${appInstanceId} last connected more than 45 seconds ago - skipping JWT verification`);
+        if (timeDifferenceSeconds > (13 * 24 * 60 * 60)) { // 13 days in seconds
+          console.log(`❌ Authentication failed for ${socket.id}: App instance ${appInstanceId} last connected more than 13 days ago - skipping JWT verification`);
           
           // Delete the stale app instance from the database
           await pool.query('DELETE FROM app_instances WHERE app_instance_id = $1', [appInstanceId]);
-          console.log(`🧹 Deleted stale app instance: ${appInstanceId} (last connected > 45 seconds ago)`);
+          console.log(`🧹 Deleted stale app instance: ${appInstanceId} (last connected > 13 days ago)`);
           
           return next(new Error('APP_INSTANCE_INACTIVE'));
         }
