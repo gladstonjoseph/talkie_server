@@ -104,13 +104,27 @@ const createAppInstancesTable = async () => {
         id SERIAL PRIMARY KEY,
         global_user_id INTEGER REFERENCES users(id),
         app_instance_id TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
+        created_at TIMESTAMP DEFAULT NOW(),
+        last_connected TIMESTAMP
       );
     `);
     console.log('App instances table created successfully');
   } catch (err) {
     console.error('Error creating app_instances table:', err);
     throw err; // Propagate the error
+  }
+};
+
+// Add last_connected column to existing app_instances table
+const addLastConnectedColumn = async () => {
+  try {
+    await pool.query(`
+      ALTER TABLE app_instances 
+      ADD COLUMN IF NOT EXISTS last_connected TIMESTAMP;
+    `);
+    console.log('Added last_connected column to app_instances table');
+  } catch (err) {
+    console.error('Error adding last_connected column:', err);
   }
 };
 
@@ -127,7 +141,7 @@ const initializeTables = async () => {
       console.log('All tables initialized successfully');
     } else {
       console.log('Skipping table initialization - using existing tables');
-      // await createAppInstancesTable();  // Remove this later
+      await addLastConnectedColumn(); // Add the new column to existing tables
     }
   } catch (err) {
     console.error('Error during table initialization:', err);
@@ -215,7 +229,7 @@ app.post('/api/login', async (req, res) => {
         appInstanceId: app_instance_id
       },
       process.env.JWT_SECRET || 'your_super_secret_key_that_should_be_long_and_random',
-      { expiresIn: '30s' } // Token expires in 30 seconds
+      { expiresIn: '60s' } // Token expires in 60 seconds
     );
 
     // Save app_instance_id to the app_instances table
@@ -330,6 +344,18 @@ io.use(async (socket, next) => {
       }
       
       console.log(`✅ App instance validation successful for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${decoded.userId}`);
+      
+      // Update last_connected timestamp for successful authentication
+      try {
+        await pool.query(
+          'UPDATE app_instances SET last_connected = NOW() WHERE app_instance_id = $1',
+          [decoded.appInstanceId]
+        );
+        console.log(`📅 Updated last_connected timestamp for app instance ${decoded.appInstanceId}`);
+      } catch (timestampError) {
+        console.error(`❌ Error updating last_connected timestamp for app instance ${decoded.appInstanceId}:`, timestampError);
+        // Don't fail the connection due to timestamp update error
+      }
       
       socket.userId = decoded.userId; // Attach userId to the socket object
       socket.appInstanceId = decoded.appInstanceId; // Attach appInstanceId to the socket object
