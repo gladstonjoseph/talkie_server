@@ -323,11 +323,11 @@ io.use(async (socket, next) => {
     }
     
     try {
-      // Validate app instance exists in database and belongs to the correct user
+      // Step 1: Validate app instance exists in database and belongs to the correct user
       console.log(`🔍 Validating app instance ${decoded.appInstanceId} for user ${decoded.userId}`);
       
       const appInstanceResult = await pool.query(
-        'SELECT global_user_id FROM app_instances WHERE app_instance_id = $1',
+        'SELECT global_user_id, last_connected FROM app_instances WHERE app_instance_id = $1',
         [decoded.appInstanceId]
       );
       
@@ -336,7 +336,9 @@ io.use(async (socket, next) => {
         return next(new Error('APP_INSTANCE_NOT_FOUND'));
       }
       
-      const dbUserId = appInstanceResult.rows[0].global_user_id;
+      const appInstance = appInstanceResult.rows[0];
+      const dbUserId = appInstance.global_user_id;
+      const lastConnected = appInstance.last_connected;
       
       if (dbUserId !== decoded.userId) {
         console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${dbUserId}, but JWT claims user ${decoded.userId}`);
@@ -345,38 +347,30 @@ io.use(async (socket, next) => {
       
       console.log(`✅ App instance validation successful for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${decoded.userId}`);
       
-      // Conditional update: only allow connection if last_connected is NULL or < 45 seconds ago
-      // This prevents connections if the last connection was more than 45 seconds ago
-      const updateResult = await pool.query(
-        `UPDATE app_instances 
-         SET last_connected = NOW() 
-         WHERE app_instance_id = $1 
-           AND (last_connected IS NULL OR last_connected >= NOW() - INTERVAL '45 seconds')`,
-        [decoded.appInstanceId]
-      );
-      
-      if (updateResult.rowCount === 0) {
-        console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} last connected more than 45 seconds ago`);
+      // Step 2: Check if app instance last connected is more than 45 seconds ago
+      if (lastConnected !== null) {
+        const now = new Date();
+        const lastConnectedDate = new Date(lastConnected);
+        const timeDifferenceMs = now.getTime() - lastConnectedDate.getTime();
+        const timeDifferenceSeconds = timeDifferenceMs / 1000;
         
-        // Delete the stale app instance from the database
-        try {
-          const deleteResult = await pool.query(
-            'DELETE FROM app_instances WHERE app_instance_id = $1',
-            [decoded.appInstanceId]
-          );
+        console.log(`🕐 App instance ${decoded.appInstanceId} last connected ${timeDifferenceSeconds.toFixed(1)} seconds ago`);
+        
+        if (timeDifferenceSeconds > 45) {
+          console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} last connected more than 45 seconds ago`);
           
-          if (deleteResult.rowCount > 0) {
-            console.log(`🧹 Deleted stale app instance: ${decoded.appInstanceId} (last connected > 45 seconds ago)`);
-          } else {
-            console.log(`ℹ️ Stale app instance ${decoded.appInstanceId} was not found for deletion (may have been deleted already)`);
-          }
-        } catch (deleteError) {
-          console.error(`❌ Error deleting stale app instance ${decoded.appInstanceId}:`, deleteError);
+          // Delete the stale app instance from the database
+          await pool.query('DELETE FROM app_instances WHERE app_instance_id = $1', [decoded.appInstanceId]);
+          console.log(`🧹 Deleted stale app instance: ${decoded.appInstanceId} (last connected > 45 seconds ago)`);
+          
+          return next(new Error('APP_INSTANCE_INACTIVE'));
         }
-        
-        return next(new Error('APP_INSTANCE_INACTIVE'));
+      } else {
+        console.log(`🆕 App instance ${decoded.appInstanceId} is connecting for the first time (last_connected is NULL)`);
       }
       
+      // Step 3: Update last_connected and allow connection
+      await pool.query('UPDATE app_instances SET last_connected = NOW() WHERE app_instance_id = $1', [decoded.appInstanceId]);
       console.log(`📅 Updated last_connected timestamp for app instance ${decoded.appInstanceId} - connection allowed`);
       
       socket.userId = decoded.userId; // Attach userId to the socket object
