@@ -345,17 +345,22 @@ io.use(async (socket, next) => {
       
       console.log(`✅ App instance validation successful for ${socket.id}: App instance ${decoded.appInstanceId} belongs to user ${decoded.userId}`);
       
-      // Update last_connected timestamp for successful authentication
-      try {
-        await pool.query(
-          'UPDATE app_instances SET last_connected = NOW() WHERE app_instance_id = $1',
-          [decoded.appInstanceId]
-        );
-        console.log(`📅 Updated last_connected timestamp for app instance ${decoded.appInstanceId}`);
-      } catch (timestampError) {
-        console.error(`❌ Error updating last_connected timestamp for app instance ${decoded.appInstanceId}:`, timestampError);
-        // Don't fail the connection due to timestamp update error
+      // Conditional update: only allow connection if last_connected is NULL or < 45 seconds ago
+      // This prevents connections if the last connection was more than 45 seconds ago
+      const updateResult = await pool.query(
+        `UPDATE app_instances 
+         SET last_connected = NOW() 
+         WHERE app_instance_id = $1 
+           AND (last_connected IS NULL OR last_connected >= NOW() - INTERVAL '45 seconds')`,
+        [decoded.appInstanceId]
+      );
+      
+      if (updateResult.rowCount === 0) {
+        console.log(`❌ Authentication failed for ${socket.id}: App instance ${decoded.appInstanceId} last connected more than 45 seconds ago`);
+        return next(new Error('APP_INSTANCE_INACTIVE'));
       }
+      
+      console.log(`📅 Updated last_connected timestamp for app instance ${decoded.appInstanceId} - connection allowed`);
       
       socket.userId = decoded.userId; // Attach userId to the socket object
       socket.appInstanceId = decoded.appInstanceId; // Attach appInstanceId to the socket object
