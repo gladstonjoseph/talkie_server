@@ -569,7 +569,7 @@ io.on("connection", (socket) => {
       // Send acknowledgment back to sender with the message ID
       if (callback) {
         callback({ 
-          messageId: savedMessage.id,
+          global_message_id: savedMessage.id,
           sender_local_message_id: savedMessage.sender_local_message_id 
         });
       }
