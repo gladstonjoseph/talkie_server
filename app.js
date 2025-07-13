@@ -12,7 +12,7 @@ app.use(cors());
 
 // PostgreSQL connection
 const pool = new Pool({
-  connectionString: "postgresql://pyne_db_73qp_user:AL0VT81m4SFkGVRhDMggN5aS7JlLjdI2@dpg-d15kmteuk2gs73fr6c50-a/pyne_db_73qp",
+  connectionString: "postgresql://pyne_pgdb_user:YfSywGUk4Ba3yDl8x8N4dOlXjzFfbem9@dpg-d1q15bnfte5s73cru66g-a/pyne_pgdb",
   ssl: {
     rejectUnauthorized: false
   }
