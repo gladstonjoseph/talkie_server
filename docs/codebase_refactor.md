@@ -1,5 +1,7 @@
 # Talkie Server Refactoring Plan
 
+## Commit ID: 3560698a49507b07f51b8898764b31e25a5b28ae
+
 ## Current Issues Analysis
 The `app.js` file has grown to 943 lines and violates several software engineering principles:
 - **Single Responsibility Principle**: Handles database setup, authentication, Socket.IO events, and HTTP endpoints
