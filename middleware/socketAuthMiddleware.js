@@ -48,7 +48,7 @@ const socketAuthMiddleware = async (socket, next) => {
         
         console.log(`🕐 App instance ${appInstanceId} last connected ${timeDifferenceSeconds.toFixed(1)} seconds ago`);
         
-        if (timeDifferenceSeconds > 30) { // (13 * 24 * 60 * 60)) { // 30 seconds in seconds
+        if (timeDifferenceSeconds > (13 * 24 * 60 * 60)) { // 13 days in seconds
           console.log(`❌ Authentication failed for ${socket.id}: App instance ${appInstanceId} last connected more than 13 days ago - skipping JWT verification`);
           
           // Delete the stale app instance from the database
