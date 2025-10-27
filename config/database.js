@@ -2,14 +2,14 @@ const { Pool } = require("pg");
 
 // PostgreSQL connection
 const pool = new Pool({
-  connectionString: "postgresql://pyne_db_obu0_user:vbDPNLGh23FJCT0wKmEqm63fYy9hX9Zx@dpg-d34umdd6ubrc73cohib0-a/pyne_db_obu0",
+  connectionString: "postgresql://pyne_db_fuuf_user:SqPEaOQnvhdNy1ruLTnMcBA7KmGT3ohH@dpg-d3vvv0s9c44c73a8roq0-a/pyne_db_fuuf",
   ssl: {
     rejectUnauthorized: false
   }
 });
 
 // Database configuration
-const FLUSH_DATABASE_ON_START = false; // Set this to true to flush the database before initialization
+const FLUSH_DATABASE_ON_START = true; // Set this to true to flush the database before initialization
 
 // Function to drop all tables
 const dropAllTables = async () => {
